@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Exam Hall Surveillance & Proctoring Control Center</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #141a29;
+            --card-border: #1e273d;
+            --accent-primary: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.25);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --severity-critical: #ef4444;
+            --severity-high: #f97316;
+            --severity-medium: #f59e0b;
+            --severity-low: #eab308;
+            --severity-normal: #10b981;
+            --card-radius: 16px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 24px;
+            overflow-x: hidden;
+        }
+
+        .dashboard-container {
+            max-width: 1540px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 28px;
+            background: linear-gradient(135deg, var(--card-bg), #1a2235);
+            border: 1px solid var(--card-border);
+            border-radius: var(--card-radius);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .header-title h1 {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #60a5fa, #a78bfa, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-title p {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 99px;
+            font-weight: 600;
+            font-size: 13px;
+            background-color: rgba(16, 185, 129, 0.12);
+            color: var(--severity-normal);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+        }
+
+        .status-badge.paused {
+            background-color: rgba(245, 158, 11, 0.12);
+            color: var(--severity-medium);
+            border: 1px solid rgba(245, 158, 11, 0.25);
+        }
+
+        .status-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background-color: currentColor;
+            box-shadow: 0 0 10px currentColor;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.4; }
+            50% { opacity: 1; }
+            100% { opacity: 0.4; }
+        }
+
+        .btn {
+            background-color: var(--accent-primary);
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.25s ease;
+            box-shadow: 0 4px 14px var(--accent-glow);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(59, 130, 246, 0.4);
+            filter: brightness(1.1);
+        }
+
+        .btn-secondary {
+            background-color: #242f47;
+            color: var(--text-main);
+            box-shadow: none;
+            border: 1px solid var(--card-border);
+        }
+
+        .btn-secondary:hover {
+            background-color: #2e3d5c;
+            box-shadow: none;
+        }
+
+        .btn-danger {
+            background-color: var(--severity-critical);
+            box-shadow: 0 4px 14px rgba(239, 68, 68, 0.25);
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 6px 18px rgba(239, 68, 68, 0.4);
+        }
+
+        .btn-success {
+            background-color: var(--severity-normal);
+            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 18px;
+        }
+
+        .stat-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--card-radius);
+            padding: 18px 22px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        .stat-info p {
+            font-size: 13px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .stat-info h3 {
+            font-size: 30px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background-color: rgba(59, 130, 246, 0.12);
+            color: var(--accent-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        /* Workspace Grid */
+        .workspace {
+            display: grid;
+            grid-template-columns: 1fr 420px;
+            gap: 24px;
+        }
+
+        @media (max-width: 1200px) {
+            .workspace {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--card-radius);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--card-border);
+            padding-bottom: 12px;
+        }
+
+        .panel-header h2 {
+            font-size: 17px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .video-container {
+            width: 100%;
+            border-radius: 12px;
+            overflow: hidden;
+            background-color: #05070c;
+            border: 1px solid var(--card-border);
+            aspect-ratio: 4/3;
+            max-height: 520px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .video-stream {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        /* Side Panel Cards */
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .chart-container {
+            width: 100%;
+            height: 200px;
+            position: relative;
+        }
+
+        .warning-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 260px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .warning-list::-webkit-scrollbar {
+            width: 5px;
+        }
+        .warning-list::-webkit-scrollbar-thumb {
+            background-color: var(--card-border);
+            border-radius: 4px;
+        }
+
+        .warning-item {
+            border-radius: 10px;
+            padding: 12px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            background-color: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--card-border);
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .warning-item.critical {
+            border-color: rgba(239, 68, 68, 0.4);
+            background-color: rgba(239, 68, 68, 0.08);
+        }
+
+        .warning-item.high {
+            border-color: rgba(249, 115, 22, 0.4);
+            background-color: rgba(249, 115, 22, 0.08);
+        }
+
+        .warning-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .badge-severity {
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .badge-critical { background: rgba(239, 68, 68, 0.2); color: var(--severity-critical); border: 1px solid rgba(239, 68, 68, 0.4); }
+        .badge-high { background: rgba(249, 115, 22, 0.2); color: var(--severity-high); border: 1px solid rgba(249, 115, 22, 0.4); }
+        .badge-medium { background: rgba(245, 158, 11, 0.2); color: var(--severity-medium); border: 1px solid rgba(245, 158, 11, 0.4); }
+        .badge-low { background: rgba(234, 179, 8, 0.2); color: var(--severity-low); border: 1px solid rgba(234, 179, 8, 0.4); }
+
+        .badge-student {
+            background-color: rgba(59, 130, 246, 0.15);
+            color: #93c5fd;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 12px;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .warning-item-reason {
+            font-size: 12px;
+            color: var(--text-main);
+        }
+
+        /* Incidents Table Panel */
+        .table-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+
+        .filter-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .input-search, .select-filter {
+            background-color: #0f1524;
+            border: 1px solid var(--card-border);
+            color: var(--text-main);
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .input-search:focus, .select-filter:focus {
+            border-color: var(--accent-primary);
+        }
+
+        .table-container {
+            width: 100%;
+            overflow-x: auto;
+            margin-top: 12px;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 13px;
+        }
+
+        th {
+            background-color: #172033;
+            color: var(--text-main);
+            font-weight: 600;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--card-border);
+            color: var(--text-muted);
+            vertical-align: middle;
+        }
+
+        tr:hover td {
+            background-color: rgba(255, 255, 255, 0.02);
+            color: var(--text-main);
+        }
+
+        .status-select {
+            background-color: #0f1524;
+            color: var(--text-main);
+            border: 1px solid var(--card-border);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        /* Modal styling */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .modal-content {
+            background-color: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--card-radius);
+            max-width: 760px;
+            width: 100%;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+            animation: modalScale 0.25s ease;
+        }
+
+        @keyframes modalScale {
+            from { transform: scale(0.92); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .modal-header {
+            padding: 16px 22px;
+            border-bottom: 1px solid var(--card-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            color: var(--text-muted);
+            background: none;
+            border: none;
+            font-size: 22px;
+            cursor: pointer;
+        }
+
+        .modal-close:hover { color: var(--severity-critical); }
+
+        .modal-body {
+            padding: 22px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .modal-body img {
+            max-width: 100%;
+            border-radius: 10px;
+            border: 1px solid var(--card-border);
+            max-height: 440px;
+            object-fit: contain;
+        }
+
+        .modal-footer {
+            padding: 16px 22px;
+            border-top: 1px solid var(--card-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.2);
+        }
+
+        /* Form Controls for Settings Modal */
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            width: 100%;
+            margin-bottom: 14px;
+        }
+
+        .form-group label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .form-group input[type="number"] {
+            background-color: #0f1524;
+            border: 1px solid var(--card-border);
+            color: var(--text-main);
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .form-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-container">
+        <!-- Header -->
+        <header>
+            <div class="header-title">
+                <h1><i class="fa-solid fa-shield-halved"></i> AI Proctoring Control Center</h1>
+                <p>Multi-Modal Holistic Vision & AI Behavioral Proctoring Platform</p>
+            </div>
+            <div class="header-actions">
+                <a href="/api/report/pdf" target="_blank" class="btn btn-secondary" style="text-decoration: none;">
+                    <i class="fa-solid fa-file-pdf" style="color:#ef4444;"></i> Printable PDF Report
+                </a>
+                <button class="btn btn-secondary" onclick="toggleAudio()" id="btn-audio">
+                    <i class="fa-solid fa-volume-high"></i> <span id="audio-text">Audio On</span>
+                </button>
+                <button class="btn btn-secondary" onclick="openConfigModal()">
+                    <i class="fa-solid fa-sliders"></i> Threshold Settings
+                </button>
+                <div class="status-badge" id="status-badge">
+                    <span class="status-dot"></span>
+                    <span id="status-text">SURVEILLANCE ACTIVE</span>
+                </div>
+                <button class="btn btn-secondary" id="btn-toggle" onclick="toggleMonitoring()">
+                    <i class="fa-solid fa-pause"></i> <span id="btn-text">Pause Feed</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Stats Row -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-info">
+                    <p>Tracked Students</p>
+                    <h3 id="stat-students">0</h3>
+                </div>
+                <div class="stat-icon"><i class="fa-solid fa-users"></i></div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-info">
+                    <p>Active Warnings (Frame)</p>
+                    <h3 id="stat-active-alerts">0</h3>
+                </div>
+                <div class="stat-icon" style="color: var(--severity-high); background: rgba(249, 115, 22, 0.12);">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-info">
+                    <p>Total Logged Incidents</p>
+                    <h3 id="stat-total-alerts">0</h3>
+                </div>
+                <div class="stat-icon" style="color: var(--severity-critical); background: rgba(239, 68, 68, 0.12);">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-info">
+                    <p>Microphone Telemetry</p>
+                    <h3 id="stat-audio-db" style="font-size: 20px;">-60 dB</h3>
+                    <span id="stat-speech-badge" style="font-size: 11px; color: var(--severity-normal); font-weight: 600;">MIC ACTIVE</span>
+                </div>
+                <div class="stat-icon" style="color: var(--severity-medium); background: rgba(56, 189, 248, 0.12);">
+                    <i class="fa-solid fa-microphone"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Workspace -->
+        <div class="workspace">
+            <!-- Surveillance Video Stream -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h2><i class="fa-solid fa-video"></i> Live Surveillance Camera Stream</h2>
+                    <span style="font-size: 12px; color: var(--text-muted);">YOLOv8 + MediaPipe Holistic ROI</span>
+                </div>
+                <div class="video-container">
+                    <img src="/video_feed" class="video-stream" id="video-stream" alt="Surveillance Stream">
+                </div>
+            </div>
+
+            <!-- Side Analytics & Live Ticker -->
+            <div class="side-panel">
+                <!-- Analytics Chart Card -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-chart-pie"></i> Incident Category Breakdown</h2>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Live Alert Feed -->
+                <div class="panel" style="flex: 1;">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-bell"></i> Live Alert Feed</h2>
+                    </div>
+                    <div class="warning-list" id="warning-list">
+                        <div style="text-align: center; color: var(--text-muted); font-size: 13px; padding: 20px 0;">
+                            No active warnings in stream
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Incident Audit Log Table Panel -->
+        <div class="panel">
+            <div class="panel-header">
+                <h2><i class="fa-solid fa-clipboard-list"></i> Incident Audit Log & Review</h2>
+                <div style="display: flex; gap: 8px;">
+                    <a href="/api/incidents/export" class="btn btn-secondary" style="text-decoration: none;">
+                        <i class="fa-solid fa-file-csv"></i> Export CSV
+                    </a>
+                    <button class="btn btn-secondary" onclick="clearAllLogs()" style="color:#ef4444;">
+                        <i class="fa-solid fa-trash"></i> Clear Logs
+                    </button>
+                    <button class="btn btn-secondary" onclick="fetchAlerts()">
+                        <i class="fa-solid fa-arrows-rotate"></i> Refresh
+                    </button>
+                </div>
+            </div>
+
+            <!-- Toolbar / Filters -->
+            <div class="table-toolbar">
+                <div class="filter-group">
+                    <input type="text" id="search-student" class="input-search" placeholder="Search Student ID..." onkeyup="fetchAlerts()">
+                    <select id="filter-category" class="select-filter" onchange="fetchAlerts()">
+                        <option value="ALL">All Categories</option>
+                        <option value="PHONE_USAGE">Phone / Forbidden Item</option>
+                        <option value="PROXY_DETECTION">Multiple Persons / Proxy</option>
+                        <option value="AUDIO_ANOMALY">Audio / Speech Anomaly</option>
+                        <option value="HEAD_TURN">Head Turn</option>
+                        <option value="LOOKING_DOWN">Looking Down/Up</option>
+                        <option value="STUDENT_ABSENT">Student Absent</option>
+                        <option value="HAND_NEAR_FACE">Hand Near Face</option>
+                        <option value="ABNORMAL_POSTURE">Abnormal Posture</option>
+                    </select>
+                    <select id="filter-severity" class="select-filter" onchange="fetchAlerts()">
+                        <option value="ALL">All Severities</option>
+                        <option value="CRITICAL">Critical</option>
+                        <option value="HIGH">High</option>
+                        <option value="MEDIUM">Medium</option>
+                        <option value="LOW">Low</option>
+                    </select>
+                    <select id="filter-status" class="select-filter" onchange="fetchAlerts()">
+                        <option value="ALL">All Statuses</option>
+                        <option value="UNREVIEWED">Unreviewed</option>
+                        <option value="CONFIRMED">Confirmed</option>
+                        <option value="DISMISSED">Dismissed</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Incident #</th>
+                            <th>Student ID</th>
+                            <th>Severity</th>
+                            <th>Category</th>
+                            <th>Activity Details</th>
+                            <th>Risk Score</th>
+                            <th>Review Status</th>
+                            <th>Recorded Timestamp</th>
+                            <th>Evidence</th>
+                        </tr>
+                    </thead>
+                    <tbody id="incidents-table-body">
+                        <tr>
+                            <td colspan="9" style="text-align: center; padding: 24px 0; color: var(--text-muted);">
+                                Loading incident database records...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Evidence Modal -->
+    <div class="modal" id="evidence-modal" onclick="closeModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-image"></i> Incident Evidence View</h3>
+                <button class="modal-close" onclick="hideModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <img id="modal-image" src="" alt="Incident Screenshot">
+                <div style="width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; font-size: 13px; background: rgba(0, 0, 0, 0.2); padding: 12px; border-radius: 8px; border: 1px solid var(--card-border);">
+                    <div>
+                        <span style="color: var(--text-muted); display: block;">Student</span>
+                        <strong id="modal-student">-</strong>
+                    </div>
+                    <div>
+                        <span style="color: var(--text-muted); display: block;">Activity</span>
+                        <strong id="modal-activity">-</strong>
+                    </div>
+                    <div>
+                        <span style="color: var(--text-muted); display: block;">Recorded At</span>
+                        <strong id="modal-time">-</strong>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn btn-success" id="btn-modal-confirm" onclick="updateModalStatus('CONFIRMED')">
+                        <i class="fa-solid fa-check"></i> Mark Confirmed
+                    </button>
+                    <button class="btn btn-danger" id="btn-modal-dismiss" onclick="updateModalStatus('DISMISSED')">
+                        <i class="fa-solid fa-xmark"></i> Mark Dismissed
+                    </button>
+                </div>
+                <button class="btn btn-secondary" onclick="hideModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Threshold Tweaker Settings Modal -->
+    <div class="modal" id="config-modal" onclick="closeConfigModal(event)">
+        <div class="modal-content" style="max-width: 520px;" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-sliders"></i> Detection Sensitivity Settings</h3>
+                <button class="modal-close" onclick="hideConfigModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="align-items: stretch;">
+                <div class="form-group">
+                    <label>Head Yaw Threshold (° Angle)</label>
+                    <input type="number" id="cfg-yaw" value="25" min="10" max="60">
+                </div>
+                <div class="form-group">
+                    <label>Head Pitch Threshold (° Angle)</label>
+                    <input type="number" id="cfg-pitch" value="15" min="5" max="45">
+                </div>
+                <div class="form-group">
+                    <label>Audio Anomaly Sensitivity Threshold (RMS)</label>
+                    <input type="number" id="cfg-audio-threshold" value="0.08" step="0.01" min="0.01" max="0.5">
+                </div>
+                <div class="form-group">
+                    <label>Suspicious Trigger Duration (Seconds)</label>
+                    <input type="number" id="cfg-duration" value="1.5" step="0.5" min="0.5" max="5.0">
+                </div>
+                <div class="form-group">
+                    <div class="form-row">
+                        <input type="checkbox" id="cfg-object-detection" checked style="width: 18px; height: 18px;">
+                        <label for="cfg-object-detection" style="color: var(--text-main); margin: 0;">Enable Forbidden Object Detection (Phone/Book/Laptop)</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-row">
+                        <input type="checkbox" id="cfg-absence-detection" checked style="width: 18px; height: 18px;">
+                        <label for="cfg-absence-detection" style="color: var(--text-main); margin: 0;">Enable Student Absence / Left Desk Detection</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-row">
+                        <input type="checkbox" id="cfg-audio-detection" checked style="width: 18px; height: 18px;">
+                        <label for="cfg-audio-detection" style="color: var(--text-main); margin: 0;">Enable Real-Time Microphone & Whisper Detection</label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideConfigModal()">Cancel</button>
+                <button class="btn" onclick="saveConfigSettings()"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isMonitoring = true;
+        let audioEnabled = true;
+        let activeModalIncidentId = null;
+        let categoryChart = null;
+        let lastAlertId = -1;
+
+        // Initialize Web Audio API Synth
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = null;
+
+        function playAlertSound() {
+            if (!audioEnabled) return;
+            try {
+                if (!audioCtx) audioCtx = new AudioContext();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } catch(e) {}
+        }
+
+        function toggleAudio() {
+            audioEnabled = !audioEnabled;
+            const btnAudio = document.getElementById('btn-audio');
+            if (audioEnabled) {
+                btnAudio.innerHTML = '<i class="fa-solid fa-volume-high"></i> <span>Audio On</span>';
+            } else {
+                btnAudio.innerHTML = '<i class="fa-solid fa-volume-xmark"></i> <span>Audio Muted</span>';
+            }
+        }
+
+        function toggleMonitoring() {
+            const action = isMonitoring ? 'pause' : 'resume';
+            fetch(`/api/control/${action}`)
+                .then(res => res.json())
+                .then(data => {
+                    const badge = document.getElementById('status-badge');
+                    const statusText = document.getElementById('status-text');
+                    const btnText = document.getElementById('btn-text');
+                    const btnIcon = document.querySelector('#btn-toggle i');
+                    
+                    if (data.status === 'paused') {
+                        isMonitoring = false;
+                        badge.classList.add('paused');
+                        statusText.innerText = 'SURVEILLANCE PAUSED';
+                        btnText.innerText = 'Resume Feed';
+                        btnIcon.className = 'fa-solid fa-play';
+                    } else {
+                        isMonitoring = true;
+                        badge.classList.remove('paused');
+                        statusText.innerText = 'SURVEILLANCE ACTIVE';
+                        btnText.innerText = 'Pause Feed';
+                        btnIcon.className = 'fa-solid fa-pause';
+                    }
+                });
+        }
+
+        function initCharts() {
+            const ctx = document.getElementById('categoryChart').getContext('2d');
+            categoryChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Phone/Forbidden', 'Proxy/Multi-Person', 'Audio Anomaly', 'Head Turn', 'Looking Down', 'Student Absent'],
+                    datasets: [{
+                        data: [0, 0, 0, 0, 0, 0],
+                        backgroundColor: ['#ef4444', '#dc2626', '#38bdf8', '#f97316', '#f59e0b', '#ec4899'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { color: '#9ca3af', font: { size: 11 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateStats() {
+            fetch('/api/stats')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('stat-students').innerText = data.active_students;
+                    document.getElementById('stat-active-alerts').innerText = data.active_alerts;
+                    document.getElementById('stat-total-alerts').innerText = data.total_logged_alerts;
+
+                    if (data.audio_metrics) {
+                        const db = data.audio_metrics.volume_db || -60;
+                        const isSpeech = data.audio_metrics.is_speech;
+                        document.getElementById('stat-audio-db').innerText = `${db} dB`;
+                        const speechBadge = document.getElementById('stat-speech-badge');
+                        if (isSpeech) {
+                            speechBadge.innerText = 'SPEECH / WHISPER';
+                            speechBadge.style.color = '#ef4444';
+                        } else {
+                            speechBadge.innerText = 'AMBIENT QUIET';
+                            speechBadge.style.color = '#10b981';
+                        }
+                    }
+
+                    if (categoryChart && data.category_counts) {
+                        const cats = data.category_counts;
+                        categoryChart.data.datasets[0].data = [
+                            cats["PHONE_USAGE"] || cats["UNAUTHORIZED_OBJECT"] || 0,
+                            cats["PROXY_DETECTION"] || 0,
+                            cats["AUDIO_ANOMALY"] || 0,
+                            cats["HEAD_TURN"] || 0,
+                            cats["LOOKING_DOWN"] || 0,
+                            cats["STUDENT_ABSENT"] || 0
+                        ];
+                        categoryChart.update();
+                    }
+                })
+                .catch(err => console.error("Error updating stats:", err));
+        }
+
+        function initSSE() {
+            try {
+                const sse = new EventSource('/api/stream-events');
+                sse.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    if (data.new_alert) {
+                        if (data.new_alert.id > lastAlertId) {
+                            lastAlertId = data.new_alert.id;
+                            if (data.new_alert.severity === 'CRITICAL' || data.new_alert.severity === 'HIGH') {
+                                playAlertSound();
+                            }
+                            fetchAlerts();
+                        }
+                    }
+                };
+            } catch(e) {}
+        }
+
+        function fetchAlerts() {
+            const studentId = document.getElementById('search-student').value;
+            const category = document.getElementById('filter-category').value;
+            const severity = document.getElementById('filter-severity').value;
+            const status = document.getElementById('filter-status').value;
+
+            const queryParams = new URLSearchParams({
+                student_id: studentId,
+                category: category,
+                severity: severity,
+                status: status
+            });
+
+            fetch(`/api/alerts?${queryParams}`)
+                .then(res => res.json())
+                .then(incidents => {
+                    const tbody = document.getElementById('incidents-table-body');
+                    const warningList = document.getElementById('warning-list');
+
+                    if (incidents.length === 0) {
+                        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; padding: 24px 0;">No matching incident reports found</td></tr>`;
+                        warningList.innerHTML = `<div style="text-align: center; color: var(--text-muted); font-size: 13px; padding: 20px 0;">No active warnings</div>`;
+                        return;
+                    }
+
+                    let tableHTML = '';
+                    incidents.forEach(inc => {
+                        const sev = inc.severity || 'MEDIUM';
+                        const cat = inc.category || 'GENERAL';
+                        const risk = inc.risk_score ? inc.risk_score.toFixed(0) : '50';
+                        const stat = inc.status || 'UNREVIEWED';
+
+                        tableHTML += `
+                            <tr>
+                                <td><strong>#${inc.id}</strong></td>
+                                <td><span class="badge-student">Student ${inc.student_id}</span></td>
+                                <td><span class="badge-severity badge-${sev.toLowerCase()}">${sev}</span></td>
+                                <td><strong style="color: var(--text-main); font-size: 12px;">${cat}</strong></td>
+                                <td>${inc.activity}</td>
+                                <td><strong style="color: ${risk >= 75 ? '#ef4444' : '#f59e0b'};">${risk}%</strong></td>
+                                <td>
+                                    <select class="status-select" onchange="changeIncidentStatus(${inc.id}, this.value)">
+                                        <option value="UNREVIEWED" ${stat === 'UNREVIEWED' ? 'selected' : ''}>Unreviewed</option>
+                                        <option value="CONFIRMED" ${stat === 'CONFIRMED' ? 'selected' : ''}>Confirmed</option>
+                                        <option value="DISMISSED" ${stat === 'DISMISSED' ? 'selected' : ''}>Dismissed</option>
+                                    </select>
+                                </td>
+                                <td>${inc.timestamp}</td>
+                                <td>
+                                    <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" 
+                                            onclick="showEvidenceModal('${inc.screenshot_path}', ${inc.student_id}, '${inc.activity.replace(/'/g, "\\'")}', '${inc.timestamp}', ${inc.id})">
+                                        <i class="fa-solid fa-image"></i> View
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    tbody.innerHTML = tableHTML;
+
+                    let tickerHTML = '';
+                    incidents.slice(0, 4).forEach(inc => {
+                        const sev = inc.severity || 'MEDIUM';
+                        tickerHTML += `
+                            <div class="warning-item ${sev.toLowerCase()}">
+                                <div class="warning-item-header">
+                                    <span>Student ${inc.student_id}</span>
+                                    <span class="badge-severity badge-${sev.toLowerCase()}">${sev}</span>
+                                </div>
+                                <div class="warning-item-reason">${inc.activity}</div>
+                            </div>
+                        `;
+                    });
+                    warningList.innerHTML = tickerHTML;
+                });
+        }
+
+        function changeIncidentStatus(id, newStatus) {
+            fetch(`/api/incidents/${id}/status`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus })
+            }).then(() => fetchAlerts());
+        }
+
+        function clearAllLogs() {
+            if (confirm("Are you sure you want to clear all logged incidents?")) {
+                fetch('/api/incidents/clear', { method: 'POST' })
+                    .then(() => {
+                        fetchAlerts();
+                        updateStats();
+                    });
+            }
+        }
+
+        function showEvidenceModal(path, studentId, activity, time, incidentId) {
+            activeModalIncidentId = incidentId;
+            document.getElementById('modal-image').src = '/' + path;
+            document.getElementById('modal-student').innerText = `Student ${studentId}`;
+            document.getElementById('modal-activity').innerText = activity;
+            document.getElementById('modal-time').innerText = time;
+            document.getElementById('evidence-modal').style.display = 'flex';
+        }
+
+        function hideModal() {
+            document.getElementById('evidence-modal').style.display = 'none';
+        }
+
+        function closeModal(e) {
+            if (e.target.id === 'evidence-modal') hideModal();
+        }
+
+        function updateModalStatus(status) {
+            if (activeModalIncidentId) {
+                changeIncidentStatus(activeModalIncidentId, status);
+                hideModal();
+            }
+        }
+
+        function openConfigModal() {
+            fetch('/api/config')
+                .then(res => res.json())
+                .then(cfg => {
+                    document.getElementById('cfg-yaw').value = cfg.yaw_threshold;
+                    document.getElementById('cfg-pitch').value = cfg.pitch_threshold;
+                    document.getElementById('cfg-audio-threshold').value = cfg.audio_threshold || 0.08;
+                    document.getElementById('cfg-duration').value = cfg.suspicious_duration;
+                    document.getElementById('cfg-object-detection').checked = cfg.enable_object_detection;
+                    document.getElementById('cfg-absence-detection').checked = cfg.enable_absence_detection;
+                    document.getElementById('cfg-audio-detection').checked = cfg.enable_audio_detection;
+                    document.getElementById('config-modal').style.display = 'flex';
+                });
+        }
+
+        function hideConfigModal() {
+            document.getElementById('config-modal').style.display = 'none';
+        }
+
+        function closeConfigModal(e) {
+            if (e.target.id === 'config-modal') hideConfigModal();
+        }
+
+        function saveConfigSettings() {
+            const yaw = document.getElementById('cfg-yaw').value;
+            const pitch = document.getElementById('cfg-pitch').value;
+            const audThresh = document.getElementById('cfg-audio-threshold').value;
+            const duration = document.getElementById('cfg-duration').value;
+            const enableObj = document.getElementById('cfg-object-detection').checked;
+            const enableAbs = document.getElementById('cfg-absence-detection').checked;
+            const enableAud = document.getElementById('cfg-audio-detection').checked;
+
+            fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    yaw: yaw,
+                    pitch: pitch,
+                    audio_threshold: audThresh,
+                    duration: duration,
+                    enable_object_detection: enableObj,
+                    enable_absence_detection: enableAbs,
+                    enable_audio_detection: enableAud
+                })
+            }).then(() => {
+                hideConfigModal();
+                alert("Proctoring sensitivity settings updated live!");
+            });
+        }
+
+        window.onload = function() {
+            initCharts();
+            updateStats();
+            fetchAlerts();
+            initSSE();
+            setInterval(updateStats, 2000);
+            setInterval(fetchAlerts, 4000);
+        };
+    </script>
+</body>
+</html>
+
+</body>
+</html>

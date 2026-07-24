@@ -1,0 +1,27 @@
+# Virtual Environment
+venv/
+.venv/
+Include/
+Lib/
+Scripts/
+pyvenv.cfg
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ML Model Weights
+weights/*.pt
+weights/*.onnx
+
+# Data & Temp files
+database/*.db
+screenshots/
+logs/
+reports/
+
+# IDE files
+.idea/
+.vscode/
