@@ -50,11 +50,21 @@ def estimate_head_pose(face_landmarks, crop_w, crop_h):
     
     dist_coeffs = np.zeros((4, 1)) # Assuming no lens distortion
     
-    # Solve PnP
-    success, rotation_vector, translation_vector = cv2.solvePnP(
-        MODEL_POINTS, image_points, camera_matrix, dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE
-    )
-    
+    # Solve PnP (guard against numerical errors / invalid input)
+    try:
+        solve_result = cv2.solvePnP(
+            MODEL_POINTS, image_points, camera_matrix, dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE
+        )
+    except cv2.error:
+        return 0.0, 0.0, 0.0, None
+
+    # OpenCV may return different shapes across versions; unpack defensively
+    if isinstance(solve_result, tuple) and len(solve_result) >= 3:
+        success, rotation_vector, translation_vector = solve_result[0], solve_result[1], solve_result[2]
+    else:
+        # Unexpected return — fail gracefully
+        return 0.0, 0.0, 0.0, None
+
     if not success:
         return 0.0, 0.0, 0.0, None
         
