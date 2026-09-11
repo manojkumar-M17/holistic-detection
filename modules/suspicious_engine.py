@@ -16,9 +16,12 @@ class SuspiciousEngine:
         # Real-time risk scores: student_id -> float (0.0 to 100.0)
         self.risk_scores = {}
         
-        # Cooldown timer to prevent alert spamming: student_id -> {behavior -> last_logged_time}
+        # Cooldown timer to prevent alert spamming: student_id -> {event_key -> last_logged_time}
         self.log_cooldowns = {}
-        self.cooldown_duration = 5.0 # Seconds before logging the same behavior again
+
+        # Event state tracking: (student_id, event_type) -> state dict
+        # state: {first_seen, last_seen, last_logged, active}
+        self.event_states = {}
 
         # Dynamic sensitivity thresholds (can be updated via dashboard API)
         self.head_yaw_threshold = cfg.HEAD_YAW_THRESHOLD
@@ -69,19 +72,20 @@ class SuspiciousEngine:
         Checks if the alert cooldown has passed to prevent duplicate logs.
         """
         current_time = time.time()
-        if student_id not in self.log_cooldowns:
-            self.log_cooldowns[student_id] = {}
-            
-        student_cooldowns = self.log_cooldowns[student_id]
-        
-        if behavior not in student_cooldowns:
-            student_cooldowns[behavior] = current_time
+        cooldowns = self.log_cooldowns.setdefault(student_id, {})
+
+        # normalize key
+        event_key = behavior.upper()
+
+        # get configured cooldown from config if exists
+        cd = getattr(__import__("config.config", fromlist=["EVENT_COOLDOWNS"]), "EVENT_COOLDOWNS", {})
+        cd_val = cd.get(event_key, cd.get(behavior, 5.0))
+
+        last = cooldowns.get(event_key, 0)
+        if current_time - last > cd_val:
+            cooldowns[event_key] = current_time
             return True
-            
-        if current_time - student_cooldowns[behavior] > self.cooldown_duration:
-            student_cooldowns[behavior] = current_time
-            return True
-            
+
         return False
 
     def get_severity(self, risk_score):
@@ -218,11 +222,30 @@ class SuspiciousEngine:
 
         if is_suspicious and len(reasons) > 0:
             reason_str = ", ".join(reasons)
-            primary_reason = reasons[0]
-            
+            primary_reason = reasons[0].upper()
+
+            # Event state tracking key
+            event_key = (student_id, primary_reason)
+            now = time.time()
+
+            state = self.event_states.get(event_key)
+            if state is None:
+                state = {
+                    "first_seen": now,
+                    "last_seen": now,
+                    "last_logged": 0,
+                    "active": True
+                }
+                self.event_states[event_key] = state
+            else:
+                state["last_seen"] = now
+                state["active"] = True
+
+            # Only log if cooldown allows
             if self._can_log(student_id, primary_reason):
+                state["last_logged"] = now
                 self._trigger_alert(student_id, reason_str, frame, bbox, severity, primary_category, current_risk)
-                
+
             return True, reason_str, current_risk, severity, primary_category
 
         return False, "Normal", current_risk, severity, primary_category

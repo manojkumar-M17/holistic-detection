@@ -18,6 +18,10 @@ class AudioEngine:
         self.volume_db = -60.0
         self.is_speech = False
         self.audio_alert = False
+        self._calibrated_baseline = None
+        self._calibration_start = None
+        self._anomaly_start = None
+        self._last_alert_time = 0
         self.lock = threading.Lock()
         self.thread = None
         self._backend = None
@@ -115,7 +119,36 @@ class AudioEngine:
             self.current_rms = float(rms)
             self.volume_db = float(db)
             self.is_speech = speech_detected
-            self.audio_alert = alert_triggered
+            # Calibration: accumulate baseline for initial seconds
+            if self._calibrated_baseline is None:
+                now = time.time()
+                if self._calibration_start is None:
+                    self._calibration_start = now
+                    self._calibrated_baseline = rms
+                else:
+                    # exponentially average baseline
+                    self._calibrated_baseline = (self._calibrated_baseline * 0.8) + (rms * 0.2)
+
+                # Not ready to alert until calibration window passes
+                if now - self._calibration_start < cfg.AUDIO_CALIBRATION_SECONDS:
+                    self.audio_alert = False
+                    return
+
+            # Determine dynamic threshold
+            dynamic_threshold = max(self.threshold, self._calibrated_baseline * cfg.AUDIO_CALIBRATION_MULTIPLIER)
+
+            if rms > dynamic_threshold and (self._anomaly_start is None):
+                self._anomaly_start = time.time()
+
+            if self._anomaly_start and (time.time() - self._anomaly_start) >= cfg.AUDIO_MIN_ANOMALY_DURATION:
+                # respect cooldown
+                if time.time() - self._last_alert_time > cfg.AUDIO_ALERT_COOLDOWN:
+                    self.audio_alert = True
+                    self._last_alert_time = time.time()
+                else:
+                    self.audio_alert = False
+            else:
+                self.audio_alert = False
 
     def get_metrics(self):
         with self.lock:

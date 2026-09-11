@@ -76,56 +76,233 @@ class TestSaveScreenshot(unittest.TestCase):
 
     def setUp(self):
         self.tmp_dir = tempfile.mkdtemp()
+
         self.em = EvidenceManager(
-            screenshot_dir=os.path.join(self.tmp_dir, "screenshots"),
-            video_dir=os.path.join(self.tmp_dir, "videos")
+            screenshot_dir=os.path.join(
+                self.tmp_dir,
+                "screenshots"
+            ),
+            video_dir=os.path.join(
+                self.tmp_dir,
+                "videos"
+            )
         )
-        self.frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        self.frame = np.zeros(
+            (480, 640, 3),
+            dtype=np.uint8
+        )
 
     def tearDown(self):
-        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+        shutil.rmtree(
+            self.tmp_dir,
+            ignore_errors=True
+        )
 
     @patch("cv2.imwrite")
-    def test_returns_string_path(self, mock_imwrite):
-        path = self.em.save_screenshot(self.frame, 1, "CELL_PHONE")
-        self.assertIsInstance(path, str)
+    def test_returns_evidence_dict(self, mock_imwrite):
+
+        mock_imwrite.return_value = True
+
+        result = self.em.save_screenshot(
+            self.frame,
+            1,
+            "CELL_PHONE"
+        )
+
+        self.assertIsInstance(
+            result,
+            dict
+        )
+
+        self.assertIn(
+            "path",
+            result
+        )
+
 
     @patch("cv2.imwrite")
     def test_path_contains_student_id(self, mock_imwrite):
-        path = self.em.save_screenshot(self.frame, 7, "STANDING")
-        self.assertIn("7", path)
+
+        mock_imwrite.return_value = True
+
+        result = self.em.save_screenshot(
+            self.frame,
+            7,
+            "STANDING"
+        )
+
+        self.assertEqual(
+            result["student_id"],
+            7
+        )
+
+        self.assertIn(
+            "Student_7",
+            result["path"]
+        )
+
 
     @patch("cv2.imwrite")
     def test_path_contains_event(self, mock_imwrite):
-        path = self.em.save_screenshot(self.frame, 1, "LOOK_LEFT")
-        self.assertIn("LOOK_LEFT", path)
+
+        mock_imwrite.return_value = True
+
+        result = self.em.save_screenshot(
+            self.frame,
+            1,
+            "LOOK_LEFT"
+        )
+
+        self.assertEqual(
+            result["event"],
+            "LOOK_LEFT"
+        )
+
+        self.assertIn(
+            "LOOK_LEFT",
+            result["path"]
+        )
+
 
     @patch("cv2.imwrite")
     def test_path_ends_with_jpg(self, mock_imwrite):
-        path = self.em.save_screenshot(self.frame, 1, "STANDING")
-        self.assertTrue(path.endswith(".jpg"))
+
+        mock_imwrite.return_value = True
+
+        result = self.em.save_screenshot(
+            self.frame,
+            1,
+            "STANDING"
+        )
+
+        self.assertTrue(
+            result["path"].endswith(
+                ".jpg"
+            )
+        )
+
 
     @patch("cv2.imwrite")
     def test_path_is_inside_screenshot_dir(self, mock_imwrite):
-        path = self.em.save_screenshot(self.frame, 1, "TALKING")
-        self.assertTrue(path.startswith(self.em.screenshot_dir))
+
+        mock_imwrite.return_value = True
+
+        result = self.em.save_screenshot(
+            self.frame,
+            1,
+            "TALKING"
+        )
+
+        self.assertTrue(
+            result["path"].startswith(
+                self.em.screenshot_dir
+            )
+        )
+
 
     @patch("cv2.imwrite")
     def test_cv2_imwrite_called_with_frame(self, mock_imwrite):
-        self.em.save_screenshot(self.frame, 1, "BOOK")
+
+        mock_imwrite.return_value = True
+
+        self.em.save_screenshot(
+            self.frame,
+            1,
+            "BOOK"
+        )
+
         mock_imwrite.assert_called_once()
+
         call_args = mock_imwrite.call_args[0]
-        self.assertIs(call_args[1], self.frame)
+
+        self.assertIs(
+            call_args[1],
+            self.frame
+        )
+
 
     @patch("cv2.imwrite")
     def test_filename_contains_timestamp(self, mock_imwrite):
-        path = self.em.save_screenshot(self.frame, 1, "TEST")
-        filename = os.path.basename(path)
-        # timestamp like 20260724_131500
+
+        mock_imwrite.return_value = True
+
+        result = self.em.save_screenshot(
+            self.frame,
+            1,
+            "TEST"
+        )
+
+        filename = os.path.basename(
+            result["path"]
+        )
+
         import re
-        self.assertRegex(filename, r"\d{8}_\d{6}")
+
+        self.assertRegex(
+            filename,
+            r"\d{8}_\d{6}"
+        )
 
 
+    @patch("cv2.imwrite")
+    def test_evidence_contains_required_fields(
+        self,
+        mock_imwrite
+    ):
+
+        mock_imwrite.return_value = True
+
+        result = self.em.save_screenshot(
+            self.frame,
+            1,
+            "CELL_PHONE"
+        )
+
+        self.assertIn(
+            "student_id",
+            result
+        )
+
+        self.assertIn(
+            "event",
+            result
+        )
+
+        self.assertIn(
+            "timestamp",
+            result
+        )
+
+        self.assertIn(
+            "path",
+            result
+        )
+
+        self.assertIn(
+            "type",
+            result
+        )
+
+
+    @patch("cv2.imwrite")
+    def test_evidence_type_is_screenshot(
+        self,
+        mock_imwrite
+    ):
+
+        mock_imwrite.return_value = True
+
+        result = self.em.save_screenshot(
+            self.frame,
+            1,
+            "BOOK"
+        )
+
+        self.assertEqual(
+            result["type"],
+            "SCREENSHOT"
+        )
 class TestStartVideoRecording(unittest.TestCase):
 
     def setUp(self):

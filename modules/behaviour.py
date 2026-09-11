@@ -1,10 +1,12 @@
 import cv2
 import numpy as np
 import math
-import mediapipe as mp
 
-# 3D generic head model points for pose estimation
-# Coords in mm, matching a generic face model
+
+# ==========================================
+# 3D GENERIC HEAD MODEL POINTS
+# ==========================================
+
 MODEL_POINTS = np.array([
     (0.0, 0.0, 0.0),             # Nose tip
     (0.0, -330.0, -65.0),        # Chin
@@ -14,196 +16,537 @@ MODEL_POINTS = np.array([
     (150.0, -150.0, -125.0)      # Right mouth corner
 ], dtype=np.float32)
 
+
+# ==========================================
+# HEAD POSE ESTIMATION
+# ==========================================
+
 def estimate_head_pose(face_landmarks, crop_w, crop_h):
     """
-    Estimates head yaw, pitch, and roll from face landmarks.
-    Yaw: turning head left/right (positive is left, negative is right)
-    Pitch: looking up/down (positive is down, negative is up)
-    Roll: tilting head left/right
-    Returns: (yaw, pitch, roll) in degrees, and 2D nose projection lines for drawing.
+    Estimates head yaw, pitch, and roll.
+
+    Returns:
+        yaw, pitch, roll, gaze_line
     """
+
     if face_landmarks is None:
         return 0.0, 0.0, 0.0, None
 
-    # Landmark indices for pose estimation
-    # 1: nose tip, 152: chin, 33: left eye outer corner, 263: right eye outer corner,
-    # 61: left mouth corner, 291: right mouth corner
+    # MediaPipe face landmark indices
     indices = [1, 152, 33, 263, 61, 291]
-    image_points = []
-    
-    for idx in indices:
-        lm = face_landmarks.landmark[idx]
-        x = lm.x * crop_w
-        y = lm.y * crop_h
-        image_points.append((x, y))
-        
-    image_points = np.array(image_points, dtype=np.float32)
 
-    # Camera internals approximation
+    image_points = []
+
+    try:
+        for idx in indices:
+            lm = face_landmarks.landmark[idx]
+
+            x = lm.x * crop_w
+            y = lm.y * crop_h
+
+            image_points.append((x, y))
+
+    except (IndexError, AttributeError):
+        return 0.0, 0.0, 0.0, None
+
+    image_points = np.array(
+        image_points,
+        dtype=np.float32
+    )
+
+    # Camera parameters
     focal_length = crop_w
-    center = (crop_w / 2, crop_h / 2)
+
+    center = (
+        crop_w / 2,
+        crop_h / 2
+    )
+
     camera_matrix = np.array([
         [focal_length, 0, center[0]],
         [0, focal_length, center[1]],
         [0, 0, 1]
     ], dtype=np.float32)
-    
-    dist_coeffs = np.zeros((4, 1)) # Assuming no lens distortion
-    
-    # Solve PnP (guard against numerical errors / invalid input)
+
+    # Assume no lens distortion
+    dist_coeffs = np.zeros(
+        (4, 1),
+        dtype=np.float32
+    )
+
+    # ==========================================
+    # SOLVE PNP
+    # ==========================================
+
     try:
+
         solve_result = cv2.solvePnP(
-            MODEL_POINTS, image_points, camera_matrix, dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE
+            MODEL_POINTS,
+            image_points,
+            camera_matrix,
+            dist_coeffs,
+            flags=cv2.SOLVEPNP_ITERATIVE
         )
+
     except cv2.error:
+
         return 0.0, 0.0, 0.0, None
 
-    # OpenCV may return different shapes across versions; unpack defensively
-    if isinstance(solve_result, tuple) and len(solve_result) >= 3:
-        success, rotation_vector, translation_vector = solve_result[0], solve_result[1], solve_result[2]
-    else:
-        # Unexpected return — fail gracefully
+    if not isinstance(solve_result, tuple):
+
         return 0.0, 0.0, 0.0, None
+
+    if len(solve_result) < 3:
+
+        return 0.0, 0.0, 0.0, None
+
+    success = solve_result[0]
+    rotation_vector = solve_result[1]
+    translation_vector = solve_result[2]
 
     if not success:
+
         return 0.0, 0.0, 0.0, None
-        
-    # Get Euler angles
-    rotation_matrix, _ = cv2.Rodrigues(rotation_vector)
-    
-    # Extract Euler angles from rotation matrix
-    sy = math.sqrt(rotation_matrix[0, 0] * rotation_matrix[0, 0] + rotation_matrix[1, 0] * rotation_matrix[1, 0])
+
+    # ==========================================
+    # ROTATION MATRIX
+    # ==========================================
+
+    rotation_matrix, _ = cv2.Rodrigues(
+        rotation_vector
+    )
+
+    sy = math.sqrt(
+        rotation_matrix[0, 0] ** 2 +
+        rotation_matrix[1, 0] ** 2
+    )
+
     singular = sy < 1e-6
-    
+
     if not singular:
-        x = math.atan2(rotation_matrix[2, 1], rotation_matrix[2, 2])
-        y = math.atan2(-rotation_matrix[2, 0], sy)
-        z = math.atan2(rotation_matrix[1, 0], rotation_matrix[0, 0])
+
+        x = math.atan2(
+            rotation_matrix[2, 1],
+            rotation_matrix[2, 2]
+        )
+
+        y = math.atan2(
+            -rotation_matrix[2, 0],
+            sy
+        )
+
+        z = math.atan2(
+            rotation_matrix[1, 0],
+            rotation_matrix[0, 0]
+        )
+
     else:
-        x = math.atan2(-rotation_matrix[1, 2], rotation_matrix[1, 1])
-        y = math.atan2(-rotation_matrix[2, 0], sy)
+
+        x = math.atan2(
+            -rotation_matrix[1, 2],
+            rotation_matrix[1, 1]
+        )
+
+        y = math.atan2(
+            -rotation_matrix[2, 0],
+            sy
+        )
+
         z = 0
-        
-    # Convert to degrees
+
+    # Convert radians to degrees
+
     pitch = x * 180.0 / math.pi
     yaw = y * 180.0 / math.pi
     roll = z * 180.0 / math.pi
-    
-    # Project a 3D point (e.g. vector pointing out from nose) to 2D screen
-    axis_3d = np.array([(0, 0, 100.0)], dtype=np.float32)
-    nose_tip_2d = image_points[0]
-    
-    projected_points_2d, _ = cv2.projectPoints(
-        axis_3d, rotation_vector, translation_vector, camera_matrix, dist_coeffs
-    )
-    
-    target_point_2d = (int(projected_points_2d[0][0][0]), int(projected_points_2d[0][0][1]))
-    
-    return yaw, pitch, roll, (nose_tip_2d, target_point_2d)
 
-def analyze_student_behaviour(landmark_data, correlated_objects=None):
+    # ==========================================
+    # GAZE LINE
+    # ==========================================
+
+    axis_3d = np.array(
+        [(0, 0, 100.0)],
+        dtype=np.float32
+    )
+
+    nose_tip_2d = image_points[0]
+
+    try:
+
+        projected_points_2d, _ = cv2.projectPoints(
+            axis_3d,
+            rotation_vector,
+            translation_vector,
+            camera_matrix,
+            dist_coeffs
+        )
+
+        target_point_2d = (
+            int(projected_points_2d[0][0][0]),
+            int(projected_points_2d[0][0][1])
+        )
+
+    except cv2.error:
+
+        target_point_2d = None
+
+    gaze_line = None
+
+    if target_point_2d is not None:
+
+        gaze_line = (
+            nose_tip_2d,
+            target_point_2d
+        )
+
+    return yaw, pitch, roll, gaze_line
+
+
+# ==========================================
+# STUDENT BEHAVIOUR ANALYSIS
+# ==========================================
+
+def analyze_student_behaviour(
+    landmark_data,
+    correlated_objects=None
+):
     """
-    Analyzes holistic landmarks and correlated objects to extract structured behavioral features:
-    - Head pose (yaw, pitch, roll)
-    - Shoulder tilt angle
-    - Hand proximity to face/head
-    - Posture state (standing/sitting)
-    - Absence check (empty desk / student left seat)
-    - Forbidden item detection (Cell phone, Book, Laptop)
+    Analyzes student behaviour using:
+
+    - Head pose
+    - Gaze direction
+    - Stable gaze events
+    - Shoulder tilt
+    - Standing detection
+    - Hand-to-face proximity
+    - Student absence
+    - Forbidden objects
     """
+
+    # ==========================================
+    # DEFAULT FEATURES
+    # ==========================================
+
     features = {
+
+        # Head pose
         "yaw": 0.0,
         "pitch": 0.0,
         "roll": 0.0,
+
         "gaze_line": None,
+
+        # Gaze tracking
+        "gaze_direction": "UNKNOWN",
+        "gaze_event": None,
+        "gaze_confidence": 0.0,
+        "is_looking_away": False,
+
+        # Posture
         "shoulder_tilt": 0.0,
+        "is_standing": False,
+        "standing_val": 0.0,
+
+        # Hands
         "hands_detected": False,
         "hand_near_face": False,
         "hand_near_face_val": 999.0,
-        "is_standing": False,
-        "standing_val": 0.0,
+
+        # Presence
         "is_absent": False,
+
+        # Objects
         "has_forbidden_object": False,
         "forbidden_objects": []
     }
 
-    # Process correlated objects (e.g., Cell Phone, Book)
+    # ==========================================
+    # FORBIDDEN OBJECT DETECTION
+    # ==========================================
+
     if correlated_objects:
+
         features["has_forbidden_object"] = True
-        features["forbidden_objects"] = [obj["label"] for obj in correlated_objects]
+
+        features["forbidden_objects"] = [
+
+            obj.get("label", "UNKNOWN")
+
+            for obj in correlated_objects
+
+        ]
+
+    # ==========================================
+    # NO LANDMARK DATA
+    # ==========================================
 
     if landmark_data is None:
+
         features["is_absent"] = True
+
         return features
 
-    # Check for empty landmark crop (Student bounding box present, but MediaPipe found no face/pose)
-    has_face = landmark_data.get("face_landmarks") is not None
-    has_pose = landmark_data.get("pose_landmarks") is not None
+    # ==========================================
+    # CHECK AVAILABLE LANDMARKS
+    # ==========================================
+
+    has_face = (
+        landmark_data.get(
+            "face_landmarks"
+        ) is not None
+    )
+
+    has_pose = (
+        landmark_data.get(
+            "pose_landmarks"
+        ) is not None
+    )
+
+    # Student bounding box exists,
+    # but no face or pose detected
+
     if not has_face and not has_pose:
+
         features["is_absent"] = True
 
-    # Get crop dimensions
-    _, _, crop_w, crop_h = landmark_data["crop_dims"]
-    
-    # 1. Head Pose Estimation (Yaw, Pitch, Roll)
-    if has_face:
-        yaw, pitch, roll, gaze_line = estimate_head_pose(
-            landmark_data["face_landmarks"], crop_w, crop_h
+    # ==========================================
+    # CROP DIMENSIONS
+    # ==========================================
+
+    crop_dims = landmark_data.get(
+        "crop_dims"
+    )
+
+    if not crop_dims:
+
+        return features
+
+    _, _, crop_w, crop_h = crop_dims
+
+    # ==========================================
+    # 1. GAZE ANALYSIS
+    # ==========================================
+
+    gaze_data = landmark_data.get(
+        "gaze"
+    )
+
+    # ------------------------------------------
+    # USE GAZE TRACKER RESULT
+    # ------------------------------------------
+
+    if gaze_data:
+
+        features["yaw"] = gaze_data.get(
+            "yaw",
+            0.0
         )
+
+        features["pitch"] = gaze_data.get(
+            "pitch",
+            0.0
+        )
+
+        features["roll"] = gaze_data.get(
+            "roll",
+            0.0
+        )
+
+        features["gaze_direction"] = gaze_data.get(
+            "direction",
+            "UNKNOWN"
+        )
+
+        features["gaze_event"] = gaze_data.get(
+            "event",
+            None
+        )
+
+        features["gaze_confidence"] = gaze_data.get(
+            "confidence",
+            0.0
+        )
+
+        # Confirmed stable gaze event
+
+        if features["gaze_event"] is not None:
+
+            features["is_looking_away"] = True
+
+    # ------------------------------------------
+    # FALLBACK HEAD POSE
+    # ------------------------------------------
+
+    elif has_face:
+
+        yaw, pitch, roll, gaze_line = estimate_head_pose(
+
+            landmark_data["face_landmarks"],
+
+            crop_w,
+
+            crop_h
+
+        )
+
         features["yaw"] = yaw
         features["pitch"] = pitch
         features["roll"] = roll
         features["gaze_line"] = gaze_line
-        
-    # 2. Shoulder Tilt & Standing Check from Pose
-    if has_pose:
-        pose = landmark_data["pose_landmarks"]
-        
-        # Left shoulder: 11, Right shoulder: 12
-        left_sh = pose.landmark[11]
-        right_sh = pose.landmark[12]
-        
-        # Calculate shoulder tilt angle relative to horizontal plane
-        dx = (right_sh.x - left_sh.x) * crop_w
-        dy = (right_sh.y - left_sh.y) * crop_h
-        tilt = math.atan2(dy, dx) * 180.0 / math.pi
-        
-        if tilt < 0:
-            tilt = -tilt
-        if tilt > 90:
-            tilt = 180 - tilt
-        features["shoulder_tilt"] = tilt
-        
-        avg_shoulder_y = (left_sh.y + right_sh.y) / 2
-        features["standing_val"] = avg_shoulder_y
-        
-        if avg_shoulder_y < 0.22:
-            features["is_standing"] = True
 
-    # 3. Hand-to-Face Proximity
-    left_hand = landmark_data["left_hand_landmarks"]
-    right_hand = landmark_data["right_hand_landmarks"]
-    
+        # Basic looking-away detection
+
+        if abs(yaw) > 20 or abs(pitch) > 15:
+
+            features["is_looking_away"] = True
+
+    # ==========================================
+    # 2. SHOULDER TILT + STANDING DETECTION
+    # ==========================================
+
+    if has_pose:
+
+        pose = landmark_data[
+            "pose_landmarks"
+        ]
+
+        try:
+
+            # MediaPipe pose indices
+            left_sh = pose.landmark[11]
+            right_sh = pose.landmark[12]
+
+            dx = (
+                right_sh.x -
+                left_sh.x
+            ) * crop_w
+
+            dy = (
+                right_sh.y -
+                left_sh.y
+            ) * crop_h
+
+            tilt = math.atan2(
+                dy,
+                dx
+            ) * 180.0 / math.pi
+
+            tilt = abs(tilt)
+
+            if tilt > 90:
+
+                tilt = 180 - tilt
+
+            features["shoulder_tilt"] = tilt
+
+            # Standing estimation
+
+            avg_shoulder_y = (
+
+                left_sh.y +
+
+                right_sh.y
+
+            ) / 2
+
+            features["standing_val"] = (
+                avg_shoulder_y
+            )
+
+            if avg_shoulder_y < 0.22:
+
+                features["is_standing"] = True
+
+        except (IndexError, AttributeError):
+
+            pass
+
+    # ==========================================
+    # 3. HAND-TO-FACE PROXIMITY
+    # ==========================================
+
+    left_hand = landmark_data.get(
+        "left_hand_landmarks"
+    )
+
+    right_hand = landmark_data.get(
+        "right_hand_landmarks"
+    )
+
     if left_hand is not None or right_hand is not None:
+
         features["hands_detected"] = True
-        
-        face_x, face_y = crop_w / 2, crop_h / 2
+
+        # Default face center
+
+        face_x = crop_w / 2
+        face_y = crop_h / 2
+
+        # Use nose position when available
+
         if has_face:
-            nose = landmark_data["face_landmarks"].landmark[4]
-            face_x, face_y = nose.x * crop_w, nose.y * crop_h
-            
+
+            try:
+
+                nose = (
+                    landmark_data[
+                        "face_landmarks"
+                    ].landmark[4]
+                )
+
+                face_x = nose.x * crop_w
+
+                face_y = nose.y * crop_h
+
+            except (IndexError, AttributeError):
+
+                pass
+
         min_dist = 999.0
-        for hand in [left_hand, right_hand]:
+
+        for hand in [
+
+            left_hand,
+
+            right_hand
+
+        ]:
+
             if hand is not None:
-                for lm in hand.landmark:
-                    hx, hy = lm.x * crop_w, lm.y * crop_h
-                    dist = math.hypot(hx - face_x, hy - face_y) / crop_w
-                    if dist < min_dist:
-                        min_dist = dist
-                        
-        features["hand_near_face_val"] = min_dist
+
+                try:
+
+                    for lm in hand.landmark:
+
+                        hx = lm.x * crop_w
+                        hy = lm.y * crop_h
+
+                        dist = math.hypot(
+
+                            hx - face_x,
+
+                            hy - face_y
+
+                        ) / max(crop_w, 1)
+
+                        if dist < min_dist:
+
+                            min_dist = dist
+
+                except AttributeError:
+
+                    pass
+
+        features["hand_near_face_val"] = (
+            min_dist
+        )
+
         if min_dist < 0.35:
+
             features["hand_near_face"] = True
 
-    return features
+    # ==========================================
+    # RETURN FINAL FEATURES
+    # ==========================================
 
+    return features

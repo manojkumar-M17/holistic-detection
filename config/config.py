@@ -72,6 +72,22 @@ SEVERITY_THRESHOLDS = {
     "CRITICAL": 90
 }
 
+# Event cooldowns (seconds) per event type
+EVENT_COOLDOWNS = {
+    "LOOKING_UP": 10.0,
+    "LOOKING_DOWN": 10.0,
+    "AUDIO_ANOMALY": 8.0,
+    "MULTIPLE_PERSONS": 15.0,
+    "CELL_PHONE": 5.0,
+}
+
+# Audio calibration & anomaly detection
+AUDIO_CALIBRATION_SECONDS = 2.0
+AUDIO_MIN_ANOMALY_DURATION = 0.6
+AUDIO_ALERT_COOLDOWN = 8.0
+AUDIO_CALIBRATION_MULTIPLIER = 1.5
+
+
 # Flask dashboard configuration
 FLASK_HOST = "127.0.0.1"
 FLASK_PORT = 5000
