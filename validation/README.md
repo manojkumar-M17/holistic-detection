@@ -8,6 +8,16 @@ This directory measures detections from local recordings. It does not upload vid
 - `annotations/annotations.template.json`: annotation format template.
 - `recordings/`: local MP4, AVI, or MOV files. Do not commit recordings.
 - `results/`: JSON results and HTML reports. Do not commit generated results.
+- `reports/`: optional copied validation reports. Do not commit generated reports.
+- `generated/`: temporary validation media or derived artifacts. Do not commit them.
+
+## Controlled Recording Workflow
+
+Record a local 5–15 minute session with one consenting participant and a fixed camera. Place the camera at approximately face height, keep the full upper body and desk visible, use stable front lighting, and avoid strong backlight or reflective backgrounds. Keep the participant seated at a consistent distance throughout the session.
+
+Perform each scenario for roughly 5–10 seconds, return to `NORMAL_SITTING` for at least 5 seconds between scenarios, and avoid transitions while annotating. Recommended order: normal sitting, each gaze direction, phone, book, laptop, hand near face, hand raised, standing, multiple person, absence, talking, return to normal, and simultaneous events. Repeat difficult scenarios if the action was ambiguous or partly occluded.
+
+Obtain informed consent for controlled testing. Keep the recording on the local machine, remove unnecessary personal information, anonymize where practical, delete it after evaluation, and never commit the recording or screenshots to Git.
 
 ## Annotation Format
 
@@ -44,11 +54,15 @@ The runner calls the production `CameraManager`, `StudentDetector`, `HolisticDet
 
 Results are saved under `validation/results/` with the captured configuration, frame counts, processing FPS, detections, metrics, and report. Tuning runs use `validation/results/tuning/run_###/`.
 
+Malformed or missing annotation JSON is rejected with a clear error. Missing, unreadable, unsupported, or zero-frame videos are rejected without modifying the production database.
+
 ## Metrics
 
 Expected events are matched one-to-one to detections of the same event inside the annotation window plus a configurable default tolerance of 2 seconds. Precision, recall, and F1 use the standard TP/FP/FN formulas. When no denominator exists, the metric is reported as `null` and marked `not_applicable`, not as a misleading zero.
 
 Stability summaries include count, first and last detection, duration, transitions, average risk, and maximum risk. Risk summaries include minimum, maximum, average, final score, and severity distribution.
+
+Annotated runs also report detection latency, event-window coverage, interruptions, longest continuous detection, scenario risk summaries, and frame-level error context. Events with no expected or observed examples are marked `insufficient_data`, not `0%`.
 
 ## Tuning
 
@@ -59,6 +73,8 @@ python tools/tune_validation.py --video validation/recordings/session_01.mp4 --a
 ```
 
 Each run stores its configuration and result. Compare F1, false positives, false negatives, and alert frequency together; do not tune against one metric alone.
+
+The current tuning command performs a small `HEAD_YAW_THRESHOLD` comparison. Production defaults are never changed automatically.
 
 ## Privacy and Limitations
 

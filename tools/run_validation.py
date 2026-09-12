@@ -5,7 +5,13 @@ import argparse
 import json
 from pathlib import Path
 
-from validation.evaluation import evaluate_events, load_annotations, summarize_risk, summarize_stability
+from validation.evaluation import (
+    evaluate_events,
+    load_annotation_file,
+    summarize_risk,
+    summarize_stability,
+    summarize_scenarios,
+)
 from validation.report import generate_validation_report
 from validation.runner import ValidationInputError, ValidationRunner
 
@@ -28,13 +34,18 @@ def main() -> int:
     result["stability"] = summarize_stability(result["detections"])
     evaluation = None
     if args.annotations:
-        annotation_data = json.loads(Path(args.annotations).read_text(encoding="utf-8"))
+        annotations = load_annotation_file(args.annotations)
         evaluation = evaluate_events(
-            load_annotations(annotation_data),
+            annotations,
             result["detections"],
             tolerance_seconds=args.tolerance,
         )
         result["evaluation"] = evaluation
+        result["scenario_summaries"] = summarize_scenarios(
+            annotations,
+            result["detections"],
+            tolerance_seconds=args.tolerance,
+        )
 
     result_path = Path(result["result_file"])
     result_path.write_text(json.dumps(result, indent=2), encoding="utf-8")

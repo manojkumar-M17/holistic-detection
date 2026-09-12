@@ -252,6 +252,23 @@ def api_validation_results():
             })
     return jsonify(summaries)
 
+@app.route('/api/validation/latest')
+def api_validation_latest():
+    """Return the newest local validation result summary, if one exists."""
+    results_dir = Path(cfg.BASE_DIR) / "validation" / "results"
+    result_paths = sorted(
+        results_dir.rglob("*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    ) if results_dir.is_dir() else []
+    for result_path in result_paths:
+        try:
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        return jsonify(result)
+    return jsonify({"status": "no_results"}), 404
+
 @app.route('/screenshots/<path:filename>')
 def get_screenshot(filename):
     """

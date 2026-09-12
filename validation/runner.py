@@ -87,6 +87,10 @@ class ValidationRunner:
         session = session_name or self.video_path.stem
         detections: list[dict[str, Any]] = []
         frame_times: list[float] = []
+        errors: list[dict[str, Any]] = []
+        frame_observations: list[dict[str, Any]] = []
+        frames_read = 0
+        failed_frames = 0
         frames_processed = 0
         started = time.perf_counter()
 
@@ -95,46 +99,62 @@ class ValidationRunner:
                 ret, frame = camera.read_frame()
                 if not ret or frame is None:
                     break
+                frames_read += 1
+                frame_number = frames_read
                 frame_started = time.perf_counter()
-                processed_bgr, _ = camera.preprocess_frame(frame, resize=True, blur=False)
-                result = detector.detect_and_track(processed_bgr)
-                students = result["students"]
-                objects = result["objects"]
-                timestamp = frames_processed / source_fps if source_fps > 0 else time.perf_counter() - started
-                audio_metrics = None
+                try:
+                    processed_bgr, _ = camera.preprocess_frame(frame, resize=True, blur=False)
+                    result = detector.detect_and_track(processed_bgr)
+                    students = result["students"]
+                    objects = result["objects"]
+                    timestamp = (frames_read - 1) / source_fps if source_fps > 0 else time.perf_counter() - started
+                    frame_observations.append({
+                        "timestamp": round(timestamp, 4),
+                        "frame_number": frame_number,
+                        "student_count": len(students),
+                    })
+                    audio_metrics = None
 
-                for student in students:
-                    student_id = student["id"]
-                    bbox = student["bbox"]
-                    related_objects = find_student_objects(bbox, objects)
-                    landmarks = holistic.process_student(processed_bgr, bbox, student_id)
-                    features = analyze_student_behaviour(landmarks, related_objects)
-                    suspicious, reason, risk, severity, category = engine.check_suspicious(
-                        student_id,
-                        features,
-                        processed_bgr,
-                        bbox,
-                        total_student_count=len(students),
-                        audio_metrics=audio_metrics,
-                    )
-                    confidence_values = [student.get("conf")]
-                    confidence_values.extend(obj.get("conf") for obj in related_objects)
-                    confidence_values = [value for value in confidence_values if value is not None]
-                    if suspicious:
-                        for event in _events_from_reason(reason):
-                            detections.append({
-                                "timestamp": round(timestamp, 4),
-                                "student_id": student_id,
-                                "event": event,
-                                "risk_score": round(float(risk), 2),
-                                "severity": severity,
-                                "category": category,
-                                "confidence": max(confidence_values) if confidence_values else None,
-                                "reason": reason,
-                            })
+                    for student in students:
+                        student_id = student["id"]
+                        bbox = student["bbox"]
+                        related_objects = find_student_objects(bbox, objects)
+                        landmarks = holistic.process_student(processed_bgr, bbox, student_id)
+                        features = analyze_student_behaviour(landmarks, related_objects)
+                        suspicious, reason, risk, severity, category = engine.check_suspicious(
+                            student_id,
+                            features,
+                            processed_bgr,
+                            bbox,
+                            total_student_count=len(students),
+                            audio_metrics=audio_metrics,
+                        )
+                        confidence_values = [student.get("conf")]
+                        confidence_values.extend(obj.get("conf") for obj in related_objects)
+                        confidence_values = [value for value in confidence_values if value is not None]
+                        if suspicious:
+                            for event in _events_from_reason(reason):
+                                detections.append({
+                                    "timestamp": round(timestamp, 4),
+                                    "frame_number": frame_number,
+                                    "student_id": student_id,
+                                    "event": event,
+                                    "risk_score": round(float(risk), 2),
+                                    "severity": severity,
+                                    "category": category,
+                                    "confidence": max(confidence_values) if confidence_values else None,
+                                    "reason": reason,
+                                })
 
-                frames_processed += 1
-                frame_times.append(time.perf_counter() - frame_started)
+                    frames_processed += 1
+                    frame_times.append(time.perf_counter() - frame_started)
+                except Exception as exc:
+                    failed_frames += 1
+                    errors.append({
+                        "frame_number": frame_number,
+                        "timestamp": round((frame_number - 1) / source_fps, 4) if source_fps else None,
+                        "error": str(exc),
+                    })
         finally:
             camera.release()
             capture.release()
@@ -152,6 +172,10 @@ class ValidationRunner:
             "video_file": str(self.video_path),
             "duration_seconds": round(duration, 4),
             "frames_processed": frames_processed,
+            "frames_read": frames_read,
+            "failed_frames": failed_frames,
+            "errors": errors,
+            "frame_observations": frame_observations,
             "source_fps": source_fps,
             "processing_seconds": round(elapsed, 4),
             "average_fps": round(frames_processed / elapsed, 3) if elapsed else 0.0,

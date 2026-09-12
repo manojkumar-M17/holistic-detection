@@ -211,6 +211,8 @@ class TestDashboardIntegration(unittest.TestCase):
         response = self.client.get("/api/validation/results")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), [])
+        latest = self.client.get("/api/validation/latest")
+        self.assertEqual(latest.status_code, 404)
 
     def test_validation_results_endpoint_reads_saved_summary(self):
         results_dir = os.path.join(self.temp_dir, "validation", "results")
@@ -227,10 +229,13 @@ class TestDashboardIntegration(unittest.TestCase):
 
         with patch("dashboard.app.cfg.BASE_DIR", self.temp_dir):
             response = self.client.get("/api/validation/results")
+            latest = self.client.get("/api/validation/latest")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()[0]["session"], "session")
         self.assertEqual(response.get_json()[0]["average_fps"], 5.0)
+        self.assertEqual(latest.status_code, 200)
+        self.assertEqual(latest.get_json()["session"], "session")
 
 
 if __name__ == "__main__":

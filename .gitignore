@@ -25,6 +25,11 @@ logs/
 reports/
 validation/recordings/
 validation/results/
+validation/reports/
+validation/generated/
+*.mp4
+*.avi
+*.mov
 
 # IDE files
 .idea/

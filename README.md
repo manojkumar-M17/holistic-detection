@@ -97,7 +97,7 @@ Detection thresholds, camera settings, feature toggles, risk thresholds, cooldow
 
 ## Real-World Validation
 
-Phase 3 validation tools measure the existing production pipeline on local recordings without uploading video. See [validation/README.md](validation/README.md) for the annotation format, standard scenarios, temporal tolerance, metrics, stability analysis, and privacy guidance.
+Phase 4 validation tools measure the existing production pipeline on local recordings without uploading video. See [validation/README.md](validation/README.md) for the controlled 5–15 minute recording workflow, annotation format, temporal tolerance, metrics, stability analysis, threshold experiments, and privacy guidance.
 
 Run one recording with:
 
@@ -111,4 +111,6 @@ Run a small yaw-threshold comparison with:
 python tools/tune_validation.py --video validation/recordings/session_01.mp4 --annotations validation/annotations/session_01.json --yaw-thresholds 20 25 30
 ```
 
-Synthetic tests verify the evaluation workflow only. Real-world precision, recall, and F1 remain pending an annotated recording.
+The runner writes structured JSON and an HTML report under `validation/results/`. Tuning also writes `summary.json` and `summary.html`. The dashboard exposes `/api/validation/results` and `/api/validation/latest` for local summaries.
+
+Synthetic tests verify the evaluation workflow only. Real-world precision, recall, and F1 remain pending an annotated recording. No real-world accuracy claim should be made without matching ground truth.

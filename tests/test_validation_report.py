@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from validation.report import generate_validation_report
+from validation.report import generate_tuning_report, generate_validation_report
 
 
 class TestValidationReport(unittest.TestCase):
@@ -31,6 +31,14 @@ class TestValidationReport(unittest.TestCase):
             self.assertIn("synthetic", content)
             self.assertIn("LOOK_LEFT", content)
             self.assertTrue(generated.is_file())
+
+    def test_tuning_report_serializes_comparison_rows(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generated = generate_tuning_report([
+                {"name": "baseline", "parameter_changes": {}, "precision": 1.0,
+                 "recall": 0.5, "f1": 2 / 3, "false_positives": 0, "false_negatives": 1}
+            ], Path(temp_dir) / "tuning.html")
+            self.assertIn("baseline", generated.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
