@@ -309,6 +309,7 @@ def run_flask_server():
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)
     
+    app.run(host=cfg.FLASK_HOST, port=cfg.FLASK_PORT, debug=False, threaded=True)
     from werkzeug.serving import make_server, BaseWSGIServer, ThreadedWSGIServer
     try:
         BaseWSGIServer.allow_reuse_port = True

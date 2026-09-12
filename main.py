@@ -17,6 +17,7 @@ from modules.holistic import HolisticDetector
 from modules.behaviour import analyze_student_behaviour
 from modules.suspicious_engine import SuspiciousEngine
 from modules.audio_engine import AudioEngine
+from dashboard.app import SharedState, run_flask_server
 from dashboard.app import SharedState, run_flask_server, stop_flask_server
 
 def draw_student_overlays(frame, bbox, student_id, landmark_data, features, is_suspicious, suspicion_reason, risk_score=0.0, severity="NORMAL"):
@@ -169,6 +170,7 @@ def processing_loop():
     print("[CORE] Proctoring monitoring loop active.")
     
     try:
+        while True:
         while not shutdown_event.is_set():
             if not SharedState.monitoring_active:
                 time.sleep(0.1)
@@ -288,6 +290,7 @@ def main():
     proc_thread.start()
     
     print("[MAIN] Launching Flask Dashboard Server on http://127.0.0.1:5000")
+    run_flask_server()
     flask_thread = threading.Thread(target=run_flask_server, name="Flask_Server_Thread")
     flask_thread.daemon = True
     flask_thread.start()

@@ -33,6 +33,8 @@ class CameraManager:
         Reads a frame from the capture stream.
         """
         if self.cap is None or not self.cap.isOpened():
+            self.open_stream()
+            if not self.cap.isOpened():
             if time.time() - self._last_open_attempt > 2.0:
                 self.open_stream()
             if self.cap is None or not self.cap.isOpened():
