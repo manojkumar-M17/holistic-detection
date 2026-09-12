@@ -531,6 +531,39 @@ class TestDatabaseManager(unittest.TestCase):
             0
         )
 
+    # ==========================================
+    # MANAGER CACHING & SWITCHING TESTS
+    # ==========================================
+
+    def test_manager_caching_returns_same_instance(self):
+        m1 = db_manager.get_manager()
+        m2 = db_manager.get_manager()
+        self.assertIs(m1, m2)
+
+    def test_manager_switching_when_db_path_changes(self):
+        m1 = db_manager.get_manager()
+        new_db_path = os.path.join(self.temp_dir, "switched.db")
+        with patch.object(db_manager, "DB_PATH", new_db_path):
+            m2 = db_manager.get_manager()
+            self.assertIsNot(m1, m2)
+            self.assertEqual(m2.db_path, os.path.abspath(new_db_path))
+
+    def test_invalid_database_path(self):
+        invalid_path = "/nonexistent_parent_dir_12345/sub/test.db"
+        with patch("os.makedirs", side_effect=OSError("Permission denied")):
+            with self.assertRaises(OSError):
+                db_manager.DatabaseManager(invalid_path)
+
+    def test_rapid_concurrent_inserts(self):
+        import concurrent.futures
+        def insert_task(student_id):
+            return db_manager.log_incident(student_id, "LOOK_LEFT")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [executor.submit(insert_task, i) for i in range(20)]
+            results = [f.result() for f in futures]
+        self.assertEqual(len(results), 20)
+        self.assertEqual(len(db_manager.get_all_incidents()), 20)
+
 
 if __name__ == "__main__":
 

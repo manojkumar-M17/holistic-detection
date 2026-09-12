@@ -3,7 +3,11 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# Ensure project root is on sys.path for direct CLI execution
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from validation.evaluation import (
     evaluate_events,
@@ -34,7 +38,11 @@ def main() -> int:
     result["stability"] = summarize_stability(result["detections"])
     evaluation = None
     if args.annotations:
-        annotations = load_annotation_file(args.annotations)
+        try:
+            annotations = load_annotation_file(args.annotations)
+        except ValueError as exc:
+            parser.error(str(exc))
+            return 2
         evaluation = evaluate_events(
             annotations,
             result["detections"],

@@ -11,12 +11,14 @@ class CameraManager:
         self.width = width
         self.height = height
         self.cap = None
+        self._last_open_attempt = 0.0
         self.open_stream()
 
     def open_stream(self):
         """
         Attempts to open the video capture stream.
         """
+        self._last_open_attempt = time.time()
         self.cap = cv2.VideoCapture(self.source)
         if not self.cap.isOpened():
             print(f"[CAMERA] Error: Could not open source {self.source}")
@@ -31,8 +33,9 @@ class CameraManager:
         Reads a frame from the capture stream.
         """
         if self.cap is None or not self.cap.isOpened():
-            self.open_stream()
-            if not self.cap.isOpened():
+            if time.time() - self._last_open_attempt > 2.0:
+                self.open_stream()
+            if self.cap is None or not self.cap.isOpened():
                 return False, None
         
         ret, frame = self.cap.read()
@@ -68,3 +71,4 @@ class CameraManager:
             self.cap.release()
             self.cap = None
             print("[CAMERA] Resources released.")
+        print("[CAMERA] Resources released.")

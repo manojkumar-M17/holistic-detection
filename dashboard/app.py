@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 from pathlib import Path
 from flask import Flask, render_template, Response, jsonify, request, make_response, send_from_directory
+from datetime import date, datetime
+from enum import Enum
 import config.config as cfg
 from database.db_manager import (
     get_all_incidents, get_stats, update_incident_status,
@@ -26,12 +28,19 @@ class SharedState:
 
 def _json_safe(value):
     """Convert NumPy scalar values in runtime telemetry to JSON types."""
+    """Convert NumPy scalar/array values, dates, and enums to standard JSON types."""
     if isinstance(value, dict):
         return {key: _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return value.tolist()
     if isinstance(value, np.generic):
         return value.item()
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Enum):
+        return value.value
     return value
 
 def gen_frames():
@@ -289,14 +298,38 @@ def control_monitoring(action):
         return jsonify({"status": "running"})
     return jsonify({"status": "unknown"})
 
+_flask_server = None
+
 def run_flask_server():
     """
     Starts the Flask app on the configured port.
     """
+    global _flask_server
     import logging
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)
     
-    app.run(host=cfg.FLASK_HOST, port=cfg.FLASK_PORT, debug=False, threaded=True)
+    from werkzeug.serving import make_server, BaseWSGIServer, ThreadedWSGIServer
+    try:
+        BaseWSGIServer.allow_reuse_port = True
+        ThreadedWSGIServer.allow_reuse_port = True
+    except Exception:
+        pass
+    _flask_server = make_server(cfg.FLASK_HOST, cfg.FLASK_PORT, app, threaded=True)
+    try:
+        _flask_server.serve_forever()
+    finally:
+        if _flask_server is not None:
+            _flask_server.server_close()
+
+def stop_flask_server():
+    """
+    Stops the running Flask server cleanly.
+    """
+    global _flask_server
+    if _flask_server is not None:
+        _flask_server.shutdown()
+        _flask_server.server_close()
+        _flask_server = None
 
 

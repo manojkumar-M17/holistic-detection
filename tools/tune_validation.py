@@ -3,12 +3,16 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# Ensure project root is on sys.path for direct CLI execution
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config.config as cfg
 from validation.evaluation import compare_experiments, evaluate_events, load_annotation_file
 from validation.report import generate_tuning_report
-from validation.runner import ValidationRunner
+from validation.runner import ValidationInputError, ValidationRunner
 
 
 def main() -> int:
@@ -20,7 +24,12 @@ def main() -> int:
     parser.add_argument("--tolerance", type=float, default=2.0)
     args = parser.parse_args()
 
-    annotations = load_annotation_file(args.annotations)
+    try:
+        annotations = load_annotation_file(args.annotations)
+    except ValueError as exc:
+        parser.error(str(exc))
+        return 2
+
     original = cfg.HEAD_YAW_THRESHOLD
     output = Path(args.output)
     experiments = []
@@ -28,7 +37,11 @@ def main() -> int:
         for index, threshold in enumerate(args.yaw_thresholds, start=1):
             cfg.HEAD_YAW_THRESHOLD = threshold
             run_dir = output / f"run_{index:03d}"
-            result = ValidationRunner(args.video, run_dir).run(session_name=f"run_{index:03d}")
+            try:
+                result = ValidationRunner(args.video, run_dir).run(session_name=f"run_{index:03d}")
+            except ValidationInputError as exc:
+                parser.error(str(exc))
+                return 2
             metrics = evaluate_events(annotations, result["detections"], args.tolerance)
             result["evaluation"] = metrics
             Path(result["result_file"]).write_text(json.dumps(result, indent=2), encoding="utf-8")
