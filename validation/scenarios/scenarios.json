@@ -1,0 +1,20 @@
+{
+  "scenarios": [
+    {"scenario_id": "NORMAL_SITTING", "expected_events": [], "notes": "One seated student looking forward with no prohibited object."},
+    {"scenario_id": "LOOK_LEFT", "expected_events": ["LOOK_LEFT"], "notes": "Student intentionally looks left."},
+    {"scenario_id": "LOOK_RIGHT", "expected_events": ["LOOK_RIGHT"], "notes": "Student intentionally looks right."},
+    {"scenario_id": "LOOK_UP", "expected_events": ["LOOK_UP"], "notes": "Student intentionally looks upward."},
+    {"scenario_id": "LOOK_DOWN", "expected_events": ["LOOK_DOWN"], "notes": "Student intentionally looks downward."},
+    {"scenario_id": "CELL_PHONE", "expected_events": ["CELL_PHONE"], "notes": "Phone is visible to the student."},
+    {"scenario_id": "BOOK", "expected_events": ["BOOK_DETECTED"], "notes": "Book is visible."},
+    {"scenario_id": "LAPTOP", "expected_events": ["LAPTOP_DETECTED"], "notes": "Laptop is visible."},
+    {"scenario_id": "HAND_FACE", "expected_events": ["HAND_FACE"], "notes": "Hand moves close to face."},
+    {"scenario_id": "HAND_RAISED", "expected_events": ["HAND_RAISED"], "notes": "Hand is raised."},
+    {"scenario_id": "STANDING", "expected_events": ["STANDING"], "notes": "Student stands."},
+    {"scenario_id": "MULTIPLE_PERSON", "expected_events": ["MULTIPLE_PERSON"], "expected_student_count": 2, "notes": "Additional person enters the monitored area."},
+    {"scenario_id": "ABSENCE", "expected_events": ["STUDENT_ABSENT"], "expected_student_count": 0, "notes": "Student leaves the monitored area."},
+    {"scenario_id": "TALKING", "expected_events": ["TALKING"], "notes": "Talking/audio behavior occurs if supported by the audio engine."},
+    {"scenario_id": "RETURN_TO_NORMAL", "expected_events": [], "notes": "Suspicious behavior stops and the system returns toward normal."},
+    {"scenario_id": "MULTIPLE_SIMULTANEOUS_EVENTS", "expected_events": ["CELL_PHONE", "TALKING"], "notes": "Two or more suspicious conditions occur simultaneously."}
+  ]
+}

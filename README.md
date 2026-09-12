@@ -94,3 +94,21 @@ Detection thresholds, camera settings, feature toggles, risk thresholds, cooldow
 - Audio detection depends on the host microphone and supported audio backends.
 - The default application is configured for a single local camera and a local Flask server.
 - The generated report endpoint returns printable HTML; PDF conversion is not performed by the application itself.
+
+## Real-World Validation
+
+Phase 3 validation tools measure the existing production pipeline on local recordings without uploading video. See [validation/README.md](validation/README.md) for the annotation format, standard scenarios, temporal tolerance, metrics, stability analysis, and privacy guidance.
+
+Run one recording with:
+
+```bash
+python tools/run_validation.py --video validation/recordings/session_01.mp4 --annotations validation/annotations/session_01.json
+```
+
+Run a small yaw-threshold comparison with:
+
+```bash
+python tools/tune_validation.py --video validation/recordings/session_01.mp4 --annotations validation/annotations/session_01.json --yaw-thresholds 20 25 30
+```
+
+Synthetic tests verify the evaluation workflow only. Real-world precision, recall, and F1 remain pending an annotated recording.

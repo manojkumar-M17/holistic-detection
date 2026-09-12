@@ -1,0 +1,14 @@
+{
+  "session": "session_01",
+  "video_file": "recordings/session_01.mp4",
+  "annotations": [
+    {
+      "scenario_id": "LOOK_LEFT",
+      "start_time": 35.0,
+      "end_time": 42.0,
+      "expected_events": ["LOOK_LEFT"],
+      "expected_student_count": 1,
+      "notes": "Student intentionally looks left. Replace timings with real observations."
+    }
+  ]
+}

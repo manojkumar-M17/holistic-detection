@@ -2,6 +2,7 @@ import time
 import json
 import cv2
 import numpy as np
+from pathlib import Path
 from flask import Flask, render_template, Response, jsonify, request, make_response, send_from_directory
 import config.config as cfg
 from database.db_manager import (
@@ -229,6 +230,27 @@ def api_manage_config():
         "enable_audio_detection": cfg.ENABLE_AUDIO_DETECTION,
         "audio_threshold": cfg.AUDIO_NOISE_THRESHOLD
     })
+
+@app.route('/api/validation/results')
+def api_validation_results():
+    """Return summaries from local validation result JSON files."""
+    results_dir = Path(cfg.BASE_DIR) / "validation" / "results"
+    summaries = []
+    if results_dir.is_dir():
+        for result_path in sorted(results_dir.rglob("*.json")):
+            try:
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            summaries.append({
+                "session": result.get("session", result_path.stem),
+                "result_file": str(result_path.relative_to(cfg.BASE_DIR)),
+                "duration_seconds": result.get("duration_seconds"),
+                "frames_processed": result.get("frames_processed"),
+                "average_fps": result.get("average_fps"),
+                "evaluation": result.get("evaluation"),
+            })
+    return jsonify(summaries)
 
 @app.route('/screenshots/<path:filename>')
 def get_screenshot(filename):

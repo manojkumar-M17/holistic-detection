@@ -1,6 +1,7 @@
 """End-to-end Flask dashboard tests using a temporary SQLite database."""
 
 import os
+import json
 import shutil
 import tempfile
 import unittest
@@ -205,6 +206,31 @@ class TestDashboardIntegration(unittest.TestCase):
             json={"yaw": "not-a-number"}
         )
         self.assertEqual(invalid_config.status_code, 400)
+
+    def test_validation_results_endpoint_handles_empty_directory(self):
+        response = self.client.get("/api/validation/results")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), [])
+
+    def test_validation_results_endpoint_reads_saved_summary(self):
+        results_dir = os.path.join(self.temp_dir, "validation", "results")
+        os.makedirs(results_dir)
+        result_path = os.path.join(results_dir, "session.json")
+        with open(result_path, "w", encoding="utf-8") as result_file:
+            json.dump({
+                "session": "session",
+                "duration_seconds": 4.0,
+                "frames_processed": 20,
+                "average_fps": 5.0,
+                "evaluation": {"overall": {"f1": 1.0}},
+            }, result_file)
+
+        with patch("dashboard.app.cfg.BASE_DIR", self.temp_dir):
+            response = self.client.get("/api/validation/results")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()[0]["session"], "session")
+        self.assertEqual(response.get_json()[0]["average_fps"], 5.0)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,8 @@ database/*.db
 screenshots/
 logs/
 reports/
+validation/recordings/
+validation/results/
 
 # IDE files
 .idea/
