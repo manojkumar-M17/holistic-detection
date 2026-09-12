@@ -20,7 +20,7 @@ class StudentRisk:
 
     warning_level: str = "NORMAL"
 
-    last_activity: str = "NORMAL"
+    last_activity: str = "Normal"
 
     last_update: float = field(
         default_factory=time.time

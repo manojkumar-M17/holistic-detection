@@ -118,7 +118,7 @@ class TestDrawEvent(unittest.TestCase):
     @patch("cv2.putText")
     def test_draw_event_uses_red_color(self, mock_puttext):
         self.vis.draw_event(self.frame, (10, 20, 200, 300), "STANDING")
-        call_color = mock_puttext.call_args[0][3]
+        call_color = mock_puttext.call_args[0][5]
         self.assertEqual(call_color, (0, 0, 255))
 
     @patch("cv2.putText")

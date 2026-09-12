@@ -1,5 +1,6 @@
-opencv-python
-mediapipe
+opencv-python==4.11.0.86
+opencv-contrib-python==4.11.0.86
+mediapipe==0.10.21
 ultralytics
 flask
 numpy

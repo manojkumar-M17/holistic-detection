@@ -95,6 +95,8 @@ class TestAnalyseStudentBehaviourReturnStructure(unittest.TestCase):
         result = analyze_student_behaviour(make_landmark_data())
         expected_keys = {
             "yaw", "pitch", "roll", "gaze_line",
+            "gaze_direction", "gaze_event", "gaze_confidence",
+            "is_looking_away",
             "shoulder_tilt", "hands_detected", "hand_near_face",
             "hand_near_face_val", "is_standing", "standing_val",
             "is_absent", "has_forbidden_object", "forbidden_objects"

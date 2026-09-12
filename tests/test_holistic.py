@@ -119,7 +119,7 @@ class TestProcessStudent(unittest.TestCase):
             result = self.detector.process_student(self.frame, (10, 10, 300, 400), 1)
             expected_keys = {
                 "crop_dims", "face_landmarks", "pose_landmarks",
-                "left_hand_landmarks", "right_hand_landmarks"
+                "left_hand_landmarks", "right_hand_landmarks", "gaze"
             }
             self.assertEqual(set(result.keys()), expected_keys)
 

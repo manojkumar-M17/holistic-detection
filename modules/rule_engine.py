@@ -36,6 +36,8 @@ class RuleEngine:
             "UNKNOWN"
         )
 
+        head_direction = behaviour.get("head_direction")
+
         is_looking_away = behaviour.get(
             "is_looking_away",
             False
@@ -76,6 +78,10 @@ class RuleEngine:
 
             else:
                 events.append("LOOKING_AWAY")
+
+        # Backward compatibility with the original head-pose output.
+        elif head_direction in {"LEFT", "RIGHT", "UP", "DOWN"}:
+            events.append(f"LOOK_{head_direction}")
 
         # ==========================================
         # 2. STANDING DETECTION

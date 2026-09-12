@@ -1,35 +1,42 @@
 import cv2
 from modules.visualization import Visualization
 
-camera = cv2.VideoCapture(0)
-visual = Visualization()
 
-while True:
-    ret, frame = camera.read()
+def run_visualization_demo():
+    camera = cv2.VideoCapture(0)
+    visual = Visualization()
 
-    if not ret:
-        break
+    try:
+        while True:
+            ret, frame = camera.read()
 
-    visual.draw_student_box(
-        frame,
-        (100, 100, 350, 400),
-        1,
-        82,
-        "HIGH"
-    )
+            if not ret:
+                break
 
-    visual.draw_event(
-        frame,
-        (100, 100, 350, 400),
-        "CELL PHONE"
-    )
+            visual.draw_student_box(
+                frame,
+                (100, 100, 350, 400),
+                1,
+                82,
+                "HIGH"
+            )
 
-    visual.draw_fps(frame, 30)
+            visual.draw_event(
+                frame,
+                (100, 100, 350, 400),
+                "CELL PHONE"
+            )
 
-    cv2.imshow("Visualization", frame)
+            visual.draw_fps(frame, 30)
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
+            cv2.imshow("Visualization", frame)
 
-camera.release()
-cv2.destroyAllWindows()
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+    finally:
+        camera.release()
+        cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    run_visualization_demo()

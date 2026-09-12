@@ -47,8 +47,9 @@ class TestRiskEngineInit(unittest.TestCase):
         expected = {
             "LOOK_LEFT", "LOOK_RIGHT", "LOOK_UP", "LOOK_DOWN",
             "HAND_FACE", "HAND_RAISED", "LEANING", "STANDING",
-            "MULTIPLE_PERSON", "CELL_PHONE", "BOOK", "LAPTOP",
-            "TALKING", "NORMAL"
+            "STUDENT_ABSENT", "MULTIPLE_PERSON", "CELL_PHONE", "BOOK",
+            "BOOK_DETECTED", "LAPTOP", "LAPTOP_DETECTED", "TALKING",
+            "LOOKING_AWAY", "NORMAL"
         }
         self.assertEqual(set(self.engine.risk_table.keys()), expected)
 
