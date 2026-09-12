@@ -1,5 +1,4 @@
 from ultralytics import YOLO
-import os
 from config.config import YOLO_MODEL_PATH, PERSON_CLASS, FORBIDDEN_CLASSES, ENABLE_OBJECT_DETECTION
 
 class StudentDetector:
@@ -8,9 +7,14 @@ class StudentDetector:
         Initializes the YOLOv8 detector and multi-class object tracker.
         """
         self.model_path = model_path
+        self.model = None
         print(f"[YOLO] Loading model from {self.model_path}...")
-        self.model = YOLO(self.model_path)
-        print("[YOLO] Model loaded successfully.")
+        try:
+            self.model = YOLO(self.model_path)
+        except Exception as exc:
+            print(f"[YOLO] Model unavailable: {exc}")
+        else:
+            print("[YOLO] Model loaded successfully.")
 
     def detect_and_track(self, frame):
         """
@@ -24,12 +28,24 @@ class StudentDetector:
         if frame is None:
             return {"students": [], "objects": []}
 
+        if self.model is None:
+            return {"students": [], "objects": []}
+
         # Target classes: Person (0), Laptop (63), Phone (67), Book (73)
         target_classes = [PERSON_CLASS]
         if ENABLE_OBJECT_DETECTION:
             target_classes.extend(list(FORBIDDEN_CLASSES.keys()))
 
-        results = self.model.track(frame, persist=True, classes=target_classes, verbose=False)
+        try:
+            results = self.model.track(
+                frame,
+                persist=True,
+                classes=target_classes,
+                verbose=False
+            )
+        except Exception as exc:
+            print(f"[YOLO] Detection unavailable: {exc}")
+            return {"students": [], "objects": []}
         
         tracked_students = []
         detected_objects = []

@@ -1,7 +1,7 @@
-import os
 import time
 import json
 import cv2
+import numpy as np
 from flask import Flask, render_template, Response, jsonify, request, make_response, send_from_directory
 import config.config as cfg
 from database.db_manager import (
@@ -21,6 +21,17 @@ class SharedState:
     monitoring_active = True      # Toggle flag
     audio_metrics = {}            # Stores RMS, volume_db, speech flag
     suspicious_engine_ref = None  # Reference to active SuspiciousEngine instance
+
+
+def _json_safe(value):
+    """Convert NumPy scalar values in runtime telemetry to JSON types."""
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
 
 def gen_frames():
     """
@@ -57,7 +68,7 @@ def event_stream():
         all_inc = get_all_incidents()
         newest_alert = all_inc[0] if len(all_inc) > 0 else None
         
-        event_data = {
+        event_data = _json_safe({
             "timestamp": time.time(),
             "active_students": SharedState.active_student_count,
             "active_alerts": SharedState.active_alert_count,
@@ -65,7 +76,7 @@ def event_stream():
             "student_risk_scores": SharedState.student_risk_scores,
             "audio_metrics": SharedState.audio_metrics,
             "new_alert": newest_alert if (newest_alert and newest_alert["id"] > last_sent_alert_id) else None
-        }
+        })
         
         if newest_alert and newest_alert["id"] > last_sent_alert_id:
             last_sent_alert_id = newest_alert["id"]
@@ -100,7 +111,7 @@ def api_stats():
     Returns real-time system statistics, risk scores, and audio metrics.
     """
     db_stats = get_stats()
-    return jsonify({
+    return jsonify(_json_safe({
         "active_students": SharedState.active_student_count,
         "active_alerts": SharedState.active_alert_count,
         "total_logged_alerts": db_stats["total_alerts"],
@@ -110,7 +121,7 @@ def api_stats():
         "category_counts": db_stats.get("category_counts", {}),
         "student_risk_scores": SharedState.student_risk_scores,
         "audio_metrics": SharedState.audio_metrics
-    })
+    }))
 
 @app.route('/api/alerts')
 def api_alerts():
@@ -184,21 +195,24 @@ def api_manage_config():
     """
     if request.method == 'POST':
         data = request.get_json() or {}
-        if "yaw" in data:
-            cfg.HEAD_YAW_THRESHOLD = float(data["yaw"])
-        if "pitch" in data:
-            cfg.HEAD_PITCH_THRESHOLD = float(data["pitch"])
-        if "duration" in data:
-            cfg.SUSPICIOUS_DURATION = float(data["duration"])
+        try:
+            if "yaw" in data:
+                cfg.HEAD_YAW_THRESHOLD = float(data["yaw"])
+            if "pitch" in data:
+                cfg.HEAD_PITCH_THRESHOLD = float(data["pitch"])
+            if "duration" in data:
+                cfg.SUSPICIOUS_DURATION = float(data["duration"])
+            if "audio_threshold" in data:
+                cfg.AUDIO_NOISE_THRESHOLD = float(data["audio_threshold"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "Numeric configuration values are invalid"}), 400
+
         if "enable_object_detection" in data:
             cfg.ENABLE_OBJECT_DETECTION = bool(data["enable_object_detection"])
         if "enable_absence_detection" in data:
             cfg.ENABLE_ABSENCE_DETECTION = bool(data["enable_absence_detection"])
         if "enable_audio_detection" in data:
             cfg.ENABLE_AUDIO_DETECTION = bool(data["enable_audio_detection"])
-        if "audio_threshold" in data:
-            cfg.AUDIO_NOISE_THRESHOLD = float(data["audio_threshold"])
-            
         if SharedState.suspicious_engine_ref:
             SharedState.suspicious_engine_ref.update_thresholds(
                 head_yaw_threshold=cfg.HEAD_YAW_THRESHOLD,

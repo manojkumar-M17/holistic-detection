@@ -2,6 +2,7 @@ import sys
 import os
 import cv2
 import numpy as np
+from unittest.mock import MagicMock, patch
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -52,15 +53,24 @@ def test_sqlite_db():
         if os.path.exists(dummy_screenshot):
             os.remove(dummy_screenshot)
             
-        return True
+        assert True
     except Exception as e:
         print(f"[FAIL] SQLite DB test failed: {e}")
-        return False
+        raise AssertionError(f"SQLite DB test failed: {e}") from e
 
-def test_camera():
+@patch("modules.camera.cv2.VideoCapture")
+def test_camera(mock_video_capture):
     print("\n--- 2. Testing Camera Module ---")
     try:
         from modules.camera import CameraManager
+        mock_capture = MagicMock()
+        mock_capture.isOpened.return_value = True
+        mock_capture.read.return_value = (
+            True,
+            np.zeros((480, 640, 3), dtype=np.uint8)
+        )
+        mock_video_capture.return_value = mock_capture
+
         cam = CameraManager(source=0)
         ret, frame = cam.read_frame()
         if ret and frame is not None:
@@ -75,10 +85,10 @@ def test_camera():
         print(f"[PASS] Frame preprocessing completed. RGB shape: {proc_rgb.shape}")
         
         cam.release()
-        return True
+        assert True
     except Exception as e:
         print(f"[FAIL] Camera test failed: {e}")
-        return False
+        raise AssertionError(f"Camera test failed: {e}") from e
 
 def test_mediapipe():
     print("\n--- 3. Testing MediaPipe Holistic ---")
@@ -91,10 +101,10 @@ def test_mediapipe():
         landmark_data = hd.process_student(mock_frame, bbox, 99)
         print(f"[PASS] MediaPipe Holistic processed student crop safely.")
         hd.release_all()
-        return True
+        assert True
     except Exception as e:
         print(f"[FAIL] MediaPipe test failed: {e}")
-        return False
+        raise AssertionError(f"MediaPipe test failed: {e}") from e
 
 def test_yolo_objects():
     print("\n--- 4. Testing YOLOv8 Forbidden Object & Tracking ---")
@@ -116,10 +126,10 @@ def test_yolo_objects():
         correlated = find_student_objects(student_bbox, detected_objects)
         assert len(correlated) == 1 and correlated[0]["label"] == "Cell Phone", "Spatial correlation failed."
         print("[PASS] find_student_objects() correctly identified phone inside student ROI.")
-        return True
+        assert True
     except Exception as e:
         print(f"[FAIL] YOLO object detection test failed: {e}")
-        return False
+        raise AssertionError(f"YOLO object detection test failed: {e}") from e
 
 def test_risk_engine():
     print("\n--- 5. Testing Risk Scoring & Behavioral Engine ---")
@@ -147,10 +157,10 @@ def test_risk_engine():
         assert decayed_risk < risk, "Risk score decay failed."
         print(f"[PASS] Risk Engine correctly decayed score from {risk}% down to {decayed_risk}%.")
         
-        return True
+        assert True
     except Exception as e:
         print(f"[FAIL] Risk Engine test failed: {e}")
-        return False
+        raise AssertionError(f"Risk Engine test failed: {e}") from e
 
 def test_flask_endpoints():
     print("\n--- 6. Testing Dashboard REST API Endpoints ---")
@@ -174,20 +184,28 @@ def test_flask_endpoints():
         assert res.status_code == 200 and "text/csv" in res.content_type, "API export failed."
         print("[PASS] GET /api/incidents/export returned CSV file.")
         
-        return True
+        assert True
     except Exception as e:
         print(f"[FAIL] Dashboard API test failed: {e}")
+        raise AssertionError(f"Dashboard API test failed: {e}") from e
+
+
+def run_check(test_function):
+    try:
+        test_function()
+    except AssertionError:
         return False
+    return True
 
 def main():
     print("=== NEXT STAGE INTEGRITY VERIFICATION TEST ===")
     results = [
-        ("SQLite DB & Review Test", test_sqlite_db()),
-        ("Camera Module Test", test_camera()),
-        ("MediaPipe Holistic Test", test_mediapipe()),
-        ("YOLO Forbidden Object Test", test_yolo_objects()),
-        ("Risk Scoring & Behavior Engine Test", test_risk_engine()),
-        ("Dashboard REST API Test", test_flask_endpoints())
+        ("SQLite DB & Review Test", run_check(test_sqlite_db)),
+        ("Camera Module Test", run_check(test_camera)),
+        ("MediaPipe Holistic Test", run_check(test_mediapipe)),
+        ("YOLO Forbidden Object Test", run_check(test_yolo_objects)),
+        ("Risk Scoring & Behavior Engine Test", run_check(test_risk_engine)),
+        ("Dashboard REST API Test", run_check(test_flask_endpoints))
     ]
     
     print("\n=== VERIFICATION SUMMARY ===")

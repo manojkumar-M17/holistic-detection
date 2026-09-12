@@ -133,6 +133,8 @@ def generate_proctoring_report(exam_name=cfg.DEFAULT_EXAM_NAME, candidate_name=c
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     report_filename = f"Proctoring_Report_{timestamp}.html"
     report_filepath = os.path.join(cfg.REPORTS_DIR, report_filename)
+
+    os.makedirs(cfg.REPORTS_DIR, exist_ok=True)
     
     with open(report_filepath, "w", encoding="utf-8") as f:
         f.write(report_html)

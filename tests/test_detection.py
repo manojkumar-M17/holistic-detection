@@ -162,6 +162,18 @@ class TestStudentDetectorWithMock(unittest.TestCase):
         self.assertEqual(result["students"], [])
         self.assertEqual(result["objects"], [])
 
+    @patch("modules.detection.YOLO", side_effect=RuntimeError("missing model"))
+    def test_missing_model_returns_empty_result(self, MockYOLO):
+        from modules.detection import StudentDetector
+
+        detector = StudentDetector(model_path="missing_model.pt")
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        self.assertEqual(
+            detector.detect_and_track(frame),
+            {"students": [], "objects": []}
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
