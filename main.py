@@ -8,6 +8,7 @@ import numpy as np
 # Add parent directory to path to ensure relative imports work when executing main
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+import config.config as cfg
 from config.config import CAMERA_SOURCE, FRAME_WIDTH, FRAME_HEIGHT
 from database.db_manager import init_db
 from modules.camera import CameraManager
@@ -17,7 +18,6 @@ from modules.holistic import HolisticDetector
 from modules.behaviour import analyze_student_behaviour
 from modules.suspicious_engine import SuspiciousEngine
 from modules.audio_engine import AudioEngine
-from dashboard.app import SharedState, run_flask_server
 from dashboard.app import SharedState, run_flask_server, stop_flask_server
 
 def draw_student_overlays(frame, bbox, student_id, landmark_data, features, is_suspicious, suspicion_reason, risk_score=0.0, severity="NORMAL"):
@@ -149,6 +149,7 @@ def processing_loop():
     """
     print("[CORE] Initializing camera manager...")
     camera = CameraManager(source=CAMERA_SOURCE, width=FRAME_WIDTH, height=FRAME_HEIGHT)
+    SharedState.camera_ref = camera
     
     print("[CORE] Initializing student & object detector engine...")
     detector = StudentDetector()
@@ -170,7 +171,6 @@ def processing_loop():
     print("[CORE] Proctoring monitoring loop active.")
     
     try:
-        while True:
         while not shutdown_event.is_set():
             if not SharedState.monitoring_active:
                 time.sleep(0.1)
@@ -204,6 +204,8 @@ def processing_loop():
             current_ids = set()
             
             for student in students:
+                if shutdown_event.is_set():
+                    break
                 sid = student["id"]
                 bbox = student["bbox"]
                 current_ids.add(sid)
@@ -289,8 +291,7 @@ def main():
     proc_thread.daemon = True
     proc_thread.start()
     
-    print("[MAIN] Launching Flask Dashboard Server on http://127.0.0.1:5000")
-    run_flask_server()
+    print(f"[MAIN] Launching Flask Dashboard Server on http://{cfg.FLASK_HOST}:{cfg.FLASK_PORT}")
     flask_thread = threading.Thread(target=run_flask_server, name="Flask_Server_Thread")
     flask_thread.daemon = True
     flask_thread.start()
@@ -302,9 +303,14 @@ def main():
         pass
     finally:
         shutdown_event.set()
+        if SharedState.camera_ref is not None:
+            try:
+                SharedState.camera_ref.release()
+            except Exception:
+                pass
         stop_flask_server()
-        flask_thread.join(timeout=3.0)
-        proc_thread.join(timeout=5.0)
+        flask_thread.join(timeout=5.0)
+        proc_thread.join(timeout=10.0)
         print("[MAIN] System shutdown complete.")
 
 if __name__ == "__main__":

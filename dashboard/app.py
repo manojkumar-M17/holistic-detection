@@ -24,6 +24,7 @@ class SharedState:
     monitoring_active = True      # Toggle flag
     audio_metrics = {}            # Stores RMS, volume_db, speech flag
     suspicious_engine_ref = None  # Reference to active SuspiciousEngine instance
+    camera_ref = None             # Reference to active CameraManager instance
 
 
 def _json_safe(value):
@@ -299,38 +300,84 @@ def control_monitoring(action):
     return jsonify({"status": "unknown"})
 
 _flask_server = None
+_flask_socket = None
 
 def run_flask_server():
     """
     Starts the Flask app on the configured port.
     """
-    global _flask_server
+    global _flask_server, _flask_socket
     import logging
+    import socket
+    import time
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)
-    
-    app.run(host=cfg.FLASK_HOST, port=cfg.FLASK_PORT, debug=False, threaded=True)
-    from werkzeug.serving import make_server, BaseWSGIServer, ThreadedWSGIServer
+
+    from werkzeug.serving import make_server
+
+    # Attempt to bind socket with SO_REUSEADDR, retrying if port was recently used
+    server_sock = None
+    for attempt in range(10):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except (AttributeError, OSError):
+                pass
+            s.bind((cfg.FLASK_HOST, cfg.FLASK_PORT))
+            s.listen(128)
+            server_sock = s
+            break
+        except OSError as e:
+            s.close()
+            if attempt < 9:
+                time.sleep(0.5)
+            else:
+                print(f"[DASHBOARD] Warning: Could not bind {cfg.FLASK_HOST}:{cfg.FLASK_PORT}: {e}")
+                return
+
+    _flask_socket = server_sock
     try:
-        BaseWSGIServer.allow_reuse_port = True
-        ThreadedWSGIServer.allow_reuse_port = True
-    except Exception:
-        pass
-    _flask_server = make_server(cfg.FLASK_HOST, cfg.FLASK_PORT, app, threaded=True)
-    try:
+        _flask_server = make_server(
+            cfg.FLASK_HOST, cfg.FLASK_PORT, app, threaded=True, fd=server_sock.fileno()
+        )
         _flask_server.serve_forever()
+    except Exception as e:
+        print(f"[DASHBOARD] Server error: {e}")
     finally:
         if _flask_server is not None:
-            _flask_server.server_close()
+            try:
+                _flask_server.server_close()
+            except Exception:
+                pass
+        if _flask_socket is not None:
+            try:
+                _flask_socket.close()
+            except Exception:
+                pass
+            _flask_socket = None
 
 def stop_flask_server():
     """
     Stops the running Flask server cleanly.
     """
-    global _flask_server
+    global _flask_server, _flask_socket
     if _flask_server is not None:
-        _flask_server.shutdown()
-        _flask_server.server_close()
+        try:
+            _flask_server.shutdown()
+        except Exception:
+            pass
+        try:
+            _flask_server.server_close()
+        except Exception:
+            pass
         _flask_server = None
+    if _flask_socket is not None:
+        try:
+            _flask_socket.close()
+        except Exception:
+            pass
+        _flask_socket = None
 
 

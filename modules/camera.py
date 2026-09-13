@@ -33,8 +33,6 @@ class CameraManager:
         Reads a frame from the capture stream.
         """
         if self.cap is None or not self.cap.isOpened():
-            self.open_stream()
-            if not self.cap.isOpened():
             if time.time() - self._last_open_attempt > 2.0:
                 self.open_stream()
             if self.cap is None or not self.cap.isOpened():
@@ -70,7 +68,9 @@ class CameraManager:
         Releases the Video Capture resources.
         """
         if self.cap is not None:
-            self.cap.release()
+            try:
+                self.cap.release()
+            except Exception:
+                pass
             self.cap = None
             print("[CAMERA] Resources released.")
-        print("[CAMERA] Resources released.")
