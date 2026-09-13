@@ -164,29 +164,31 @@ class SuspiciousEngine:
             self._get_duration(student_id, "absent", False)
 
         # 3. Rule: Head Turn (Yaw)
-        yaw_active = abs(features["yaw"]) > self.head_yaw_threshold
+        yaw_val = features.get("yaw", 0.0)
+        yaw_active = abs(yaw_val) > self.head_yaw_threshold
         yaw_duration = self._get_duration(student_id, "head_turn", yaw_active)
         if yaw_duration > cfg.SUSPICIOUS_DURATION:
             active_triggers = True
-            direction = "Right" if features["yaw"] < 0 else "Left"
+            direction = "Right" if yaw_val < 0 else "Left"
             reasons.append(f"Looking {direction} ({yaw_duration:.1f}s)")
             current_risk = min(100.0, current_risk + 3.0)
             if primary_category == "GENERAL":
                 primary_category = "HEAD_TURN"
 
         # 4. Rule: Looking Down / Up (Pitch)
-        pitch_active = abs(features["pitch"]) > self.head_pitch_threshold
+        pitch_val = features.get("pitch", 0.0)
+        pitch_active = abs(pitch_val) > self.head_pitch_threshold
         pitch_duration = self._get_duration(student_id, "look_away", pitch_active)
         if pitch_duration > cfg.SUSPICIOUS_DURATION:
             active_triggers = True
-            direction = "Down" if features["pitch"] > 0 else "Up"
+            direction = "Down" if pitch_val > 0 else "Up"
             reasons.append(f"Looking {direction} ({pitch_duration:.1f}s)")
             current_risk = min(100.0, current_risk + 3.0)
             if primary_category == "GENERAL":
                 primary_category = "LOOKING_DOWN"
 
         # 5. Rule: Hand Near Face
-        hand_active = features["hand_near_face"]
+        hand_active = bool(features.get("hand_near_face", False))
         hand_duration = self._get_duration(student_id, "hand_near_face", hand_active)
         if hand_duration > cfg.SUSPICIOUS_DURATION:
             active_triggers = True
@@ -196,7 +198,7 @@ class SuspiciousEngine:
                 primary_category = "HAND_NEAR_FACE"
 
         # 6. Rule: Body Posture (Leaning / Standing)
-        lean_active = features["shoulder_tilt"] > self.shoulder_tilt_threshold
+        lean_active = float(features.get("shoulder_tilt", 0.0)) > self.shoulder_tilt_threshold
         lean_duration = self._get_duration(student_id, "leaning", lean_active)
         if lean_duration > cfg.SUSPICIOUS_DURATION:
             active_triggers = True
@@ -205,7 +207,7 @@ class SuspiciousEngine:
             if primary_category == "GENERAL":
                 primary_category = "ABNORMAL_POSTURE"
 
-        if features["is_standing"]:
+        if features.get("is_standing", features.get("standing", False)):
             active_triggers = True
             reasons.append("Standing up")
             current_risk = min(100.0, current_risk + 4.0)
@@ -261,7 +263,6 @@ class SuspiciousEngine:
         filepath = os.path.join(cfg.SCREENSHOT_DIR, filename)
         
         annotated_screenshot = frame.copy()
-        x1, y1, x2, y2 = bbox
         
         color_map = {
             "CRITICAL": (0, 0, 255),
@@ -271,12 +272,22 @@ class SuspiciousEngine:
         }
         alert_color = color_map.get(severity, (0, 0, 255))
         
-        cv2.rectangle(annotated_screenshot, (x1, y1), (x2, y2), alert_color, 3)
-        label = f"[{severity}] Student {student_id} (Risk: {risk_score:.0f}%): {reason}"
-        cv2.putText(
-            annotated_screenshot, label, (x1, max(y1 - 10, 20)),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.55, alert_color, 2
-        )
+        if bbox is not None:
+            x1, y1, x2, y2 = bbox
+            cv2.rectangle(annotated_screenshot, (x1, y1), (x2, y2), alert_color, 3)
+            label = f"[{severity}] Student {student_id} (Risk: {risk_score:.0f}%): {reason}"
+            cv2.putText(
+                annotated_screenshot, label, (x1, max(y1 - 10, 20)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, alert_color, 2
+            )
+        else:
+            h, w = annotated_screenshot.shape[:2]
+            cv2.rectangle(annotated_screenshot, (10, 10), (w - 10, 60), alert_color, -1)
+            label = f"[{severity}] Student {student_id} (Risk: {risk_score:.0f}%): {reason}"
+            cv2.putText(
+                annotated_screenshot, label, (20, 42),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2
+            )
         
         cv2.imwrite(filepath, annotated_screenshot)
         log_incident(student_id, reason, filepath, severity=severity, category=category, risk_score=risk_score)

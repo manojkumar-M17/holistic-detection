@@ -19,6 +19,13 @@ class CameraManager:
         Attempts to open the video capture stream.
         """
         self._last_open_attempt = time.time()
+        if str(self.source).lower() in ("demo", "synthetic"):
+            self.is_synthetic = True
+            self._frame_count = 0
+            print(f"[CAMERA] Synthetic/Demo source '{self.source}' initialized.")
+            return
+
+        self.is_synthetic = False
         self.cap = cv2.VideoCapture(self.source)
         if not self.cap.isOpened():
             print(f"[CAMERA] Error: Could not open source {self.source}")
@@ -32,6 +39,22 @@ class CameraManager:
         """
         Reads a frame from the capture stream.
         """
+        if getattr(self, "is_synthetic", False):
+            self._frame_count += 1
+            import numpy as np
+            frame = np.full((self.height, self.width, 3), 25, dtype=np.uint8)
+            # Draw synthetic desk background
+            cv2.rectangle(frame, (80, 240), (self.width - 80, self.height - 20), (50, 50, 60), -1)
+            cv2.rectangle(frame, (80, 240), (self.width - 80, self.height - 20), (80, 80, 95), 2)
+            cv2.putText(frame, "EXAM DESK #1", (100, 275), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (120, 120, 130), 1)
+            # Simulation banner
+            cv2.putText(
+                frame, f"[DEMO SIMULATION] Frame {self._frame_count}", (20, 35),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 220, 255), 2
+            )
+            time.sleep(0.03)
+            return True, frame
+
         if self.cap is None or not self.cap.isOpened():
             if time.time() - self._last_open_attempt > 2.0:
                 self.open_stream()
@@ -67,6 +90,7 @@ class CameraManager:
         """
         Releases the Video Capture resources.
         """
+        self.is_synthetic = False
         if self.cap is not None:
             try:
                 self.cap.release()

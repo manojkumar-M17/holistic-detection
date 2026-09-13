@@ -3,6 +3,7 @@ import threading
 import time
 import sys
 import os
+import argparse
 import numpy as np
 
 # Add parent directory to path to ensure relative imports work when executing main
@@ -25,6 +26,8 @@ def draw_student_overlays(frame, bbox, student_id, landmark_data, features, is_s
     Draws custom stylized overlays (bounding box, skeletons, hands, gaze pointer, risk score badges)
     directly onto the main camera frame.
     """
+    if bbox is None:
+        return
     x1, y1, x2, y2 = bbox
     
     # 1. Color scheme based on severity level
@@ -142,13 +145,14 @@ def draw_object_overlays(frame, detected_objects):
 
 shutdown_event = threading.Event()
 
-def processing_loop():
+def processing_loop(is_demo=False):
     """
     Background worker thread running YOLOv8 tracking, object correlation,
     MediaPipe Holistic, audio anomaly detection, risk scoring, DB alert logging, and stream updates.
     """
-    print("[CORE] Initializing camera manager...")
-    camera = CameraManager(source=CAMERA_SOURCE, width=FRAME_WIDTH, height=FRAME_HEIGHT)
+    cam_source = "demo" if is_demo else CAMERA_SOURCE
+    print(f"[CORE] Initializing camera manager (source={cam_source})...")
+    camera = CameraManager(source=cam_source, width=FRAME_WIDTH, height=FRAME_HEIGHT)
     SharedState.camera_ref = camera
     
     print("[CORE] Initializing student & object detector engine...")
@@ -167,8 +171,9 @@ def processing_loop():
     
     frame_count = 0
     cached_student_features = {}
+    established_students = {}  # sid -> {"first_seen": float, "last_seen": float, "seen_count": int}
 
-    print("[CORE] Proctoring monitoring loop active.")
+    print("[CORE] Proctoring monitoring loop active." + (" [DEMO MODE]" if is_demo else ""))
     
     try:
         while not shutdown_event.is_set():
@@ -182,88 +187,260 @@ def processing_loop():
                 continue
             
             frame_count += 1
+            now = time.time()
             processed_bgr, processed_rgb = camera.preprocess_frame(frame, resize=True, blur=False)
-            
-            # 1. Multi-Student & Forbidden Object Detection
-            detection_res = detector.detect_and_track(processed_bgr)
-            students = detection_res["students"]
-            all_objects = detection_res["objects"]
-            
-            total_students = len(students)
-            SharedState.active_student_count = total_students
-            current_alerts_count = 0
             annotated_frame = processed_bgr.copy()
+            current_alerts_count = 0
             
             # Get latest microphone / audio telemetry
             audio_metrics = audio_engine.get_metrics()
             SharedState.audio_metrics = audio_metrics
-            
-            # 2. Draw Standalone Forbidden Object Highlights
-            draw_object_overlays(annotated_frame, all_objects)
-            
-            current_ids = set()
-            
-            for student in students:
-                if shutdown_event.is_set():
-                    break
-                sid = student["id"]
-                bbox = student["bbox"]
-                current_ids.add(sid)
-                
-                # Spatial correlation: find forbidden objects near/inside this student ROI
-                correlated_objs = find_student_objects(bbox, all_objects)
-                
-                should_run_holistic = (frame_count % 2 == 0) or (sid not in cached_student_features)
-                landmark_data = None
-                features = None
-                
-                if should_run_holistic:
-                    landmark_data = holistic.process_student(processed_bgr, bbox, sid)
-                    features = analyze_student_behaviour(landmark_data, correlated_objects=correlated_objs)
-                    cached_student_features[sid] = {
-                        "landmarks": landmark_data,
-                        "features": features
-                    }
-                else:
-                    cache = cached_student_features.get(sid)
-                    if cache:
-                        landmark_data = cache["landmarks"]
-                        features = cache["features"]
-                        # Update correlated objects in cached features
-                        features["has_forbidden_object"] = len(correlated_objs) > 0
-                        features["forbidden_objects"] = [o["label"] for o in correlated_objs]
 
-                # 3. Risk Score & Suspicious Behavior Check
-                is_suspicious = False
-                suspicion_reason = "Normal"
-                risk_score = 0.0
-                severity = "NORMAL"
-                category = "GENERAL"
+            if is_demo:
+                # Deterministic synthetic simulation sequence (60 frames per phase @ ~25fps = ~2.4s per phase)
+                h, w = annotated_frame.shape[:2]
+                demo_sid = 1
+                demo_bbox = (180, 100, 460, 430)
+                phase = (frame_count // 60) % 5
+
+                # Render exam desk environment in annotated frame
+                cv2.rectangle(annotated_frame, (100, 260), (540, 450), (60, 60, 70), -1)
+                cv2.rectangle(annotated_frame, (100, 260), (540, 450), (90, 90, 100), 2)
+                cv2.putText(annotated_frame, "CANDIDATE DESK #01", (120, 290), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (140, 140, 150), 1)
+
+                if phase == 0:
+                    phase_name = "1/5: Normal Candidate Posture"
+                    students = [{"id": demo_sid, "bbox": demo_bbox, "conf": 0.95}]
+                    all_objects = []
+                    features = {
+                        "yaw": 0.0, "pitch": 0.0, "is_absent": False,
+                        "has_forbidden_object": False, "forbidden_objects": [],
+                        "mouth_open": False, "hand_near_face": False,
+                        "standing": False, "leaning": False,
+                        "gaze_line": None
+                    }
+                elif phase == 1:
+                    phase_name = "2/5: Head Turn Anomaly (Looking Left)"
+                    students = [{"id": demo_sid, "bbox": demo_bbox, "conf": 0.95}]
+                    all_objects = []
+                    features = {
+                        "yaw": 32.0, "pitch": 0.0, "is_absent": False,
+                        "has_forbidden_object": False, "forbidden_objects": [],
+                        "mouth_open": False, "hand_near_face": False,
+                        "standing": False, "leaning": False,
+                        "gaze_line": None
+                    }
+                elif phase == 2:
+                    phase_name = "3/5: Unauthorized Item (Cell Phone)"
+                    phone_bbox = (360, 270, 430, 350)
+                    students = [{"id": demo_sid, "bbox": demo_bbox, "conf": 0.95}]
+                    all_objects = [{"id": 0, "bbox": phone_bbox, "label": "Cell Phone", "conf": 0.94}]
+                    features = {
+                        "yaw": 10.0, "pitch": 25.0, "is_absent": False,
+                        "has_forbidden_object": True, "forbidden_objects": ["Cell Phone"],
+                        "mouth_open": False, "hand_near_face": True,
+                        "standing": False, "leaning": False,
+                        "gaze_line": None
+                    }
+                elif phase == 3:
+                    phase_name = "4/5: Student Absence (Candidate Left Desk)"
+                    students = []
+                    all_objects = []
+                    features = None
+                else:
+                    phase_name = "5/5: Candidate Returned / Normal Activity"
+                    students = [{"id": demo_sid, "bbox": demo_bbox, "conf": 0.95}]
+                    all_objects = []
+                    features = {
+                        "yaw": 0.0, "pitch": 0.0, "is_absent": False,
+                        "has_forbidden_object": False, "forbidden_objects": [],
+                        "mouth_open": False, "hand_near_face": False,
+                        "standing": False, "leaning": False,
+                        "gaze_line": None
+                    }
+
+                # Top banner
+                cv2.rectangle(annotated_frame, (10, 10), (w - 10, 42), (30, 35, 45), -1)
+                cv2.putText(
+                    annotated_frame, f"DEMO SIMULATION | Phase {phase_name}", (20, 32),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 200), 2
+                )
+
+                if students:
+                    # Draw simulated student avatar
+                    cv2.circle(annotated_frame, (320, 180), 45, (160, 170, 190), -1)
+                    cv2.ellipse(annotated_frame, (320, 280), (70, 50), 0, 0, 360, (140, 150, 170), -1)
+
+                total_students = len(students)
+                SharedState.active_student_count = total_students
+                draw_object_overlays(annotated_frame, all_objects)
+
+                current_ids = set()
+                for student in students:
+                    sid = student["id"]
+                    bbox = student["bbox"]
+                    current_ids.add(sid)
+                    if sid not in established_students:
+                        established_students[sid] = {"first_seen": now, "last_seen": now, "seen_count": 1}
+                    else:
+                        established_students[sid]["last_seen"] = now
+                        established_students[sid]["seen_count"] += 1
+
+                    is_suspicious, suspicion_reason, risk_score, severity, category = engine.check_suspicious(
+                        sid, features, processed_bgr, bbox,
+                        total_student_count=total_students,
+                        audio_metrics=audio_metrics
+                    )
+                    if is_suspicious:
+                        current_alerts_count += 1
+                    draw_student_overlays(
+                        annotated_frame, bbox, sid, None, features,
+                        is_suspicious, suspicion_reason, risk_score=risk_score, severity=severity
+                    )
+
+                # Evaluate absence for established student in demo mode
+                if cfg.ENABLE_ABSENCE_DETECTION:
+                    for sid, info in list(established_students.items()):
+                        if sid not in current_ids and info["seen_count"] >= 5:
+                            time_since = now - info["last_seen"]
+                            if time_since > 1.5:
+                                absent_features = {
+                                    "is_absent": True,
+                                    "has_forbidden_object": False,
+                                    "forbidden_objects": [],
+                                    "yaw": 0.0,
+                                    "pitch": 0.0,
+                                    "mouth_open": False,
+                                    "hand_near_face": False,
+                                }
+                                is_suspicious, suspicion_reason, risk_score, severity, category = engine.check_suspicious(
+                                    sid, absent_features, processed_bgr, bbox=None,
+                                    total_student_count=total_students,
+                                    audio_metrics=audio_metrics
+                                )
+                                if is_suspicious:
+                                    current_alerts_count += 1
+                                    cv2.rectangle(annotated_frame, (10, 48), (w - 10, 82), (0, 69, 255), -1)
+                                    cv2.putText(
+                                        annotated_frame,
+                                        f"[ABSENCE ALERT] Student {sid} absent for {time_since:.1f}s (Risk: {risk_score:.0f}%)",
+                                        (20, 71),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2
+                                    )
+
+            else:
+                # Production live camera monitoring flow
+                detection_res = detector.detect_and_track(processed_bgr)
+                students = detection_res["students"]
+                all_objects = detection_res["objects"]
                 
-                is_suspicious, suspicion_reason, risk_score, severity, category = engine.check_suspicious(
-                    sid, features, processed_bgr, bbox,
-                    total_student_count=total_students,
-                    audio_metrics=audio_metrics
-                )
-                if is_suspicious:
-                    current_alerts_count += 1
-                        
-                # 4. Render Overlays with Risk Badges
-                draw_student_overlays(
-                    annotated_frame, bbox, sid, landmark_data, features,
-                    is_suspicious, suspicion_reason, risk_score=risk_score, severity=severity
-                )
-            
-            # Clean up stale cache
-            stale_cache_ids = [sid for sid in cached_student_features if sid not in current_ids]
-            for sid in stale_cache_ids:
-                if sid in cached_student_features:
-                    del cached_student_features[sid]
-                    
+                total_students = len(students)
+                SharedState.active_student_count = total_students
+                
+                # Draw Standalone Forbidden Object Highlights
+                draw_object_overlays(annotated_frame, all_objects)
+                
+                current_ids = set()
+                
+                for student in students:
+                    if shutdown_event.is_set():
+                        break
+                    sid = student["id"]
+                    bbox = student["bbox"]
+                    current_ids.add(sid)
+
+                    if sid not in established_students:
+                        established_students[sid] = {"first_seen": now, "last_seen": now, "seen_count": 1}
+                    else:
+                        established_students[sid]["last_seen"] = now
+                        established_students[sid]["seen_count"] += 1
+
+                    # Spatial correlation: find forbidden objects near/inside this student ROI
+                    correlated_objs = find_student_objects(bbox, all_objects)
+
+                    should_run_holistic = (frame_count % 2 == 0) or (sid not in cached_student_features)
+                    landmark_data = None
+                    features = None
+
+                    if should_run_holistic:
+                        landmark_data = holistic.process_student(processed_bgr, bbox, sid)
+                        features = analyze_student_behaviour(landmark_data, correlated_objects=correlated_objs)
+                        cached_student_features[sid] = {
+                            "landmarks": landmark_data,
+                            "features": features
+                        }
+                    else:
+                        cache = cached_student_features.get(sid)
+                        if cache:
+                            landmark_data = cache["landmarks"]
+                            features = cache["features"]
+                            features["has_forbidden_object"] = len(correlated_objs) > 0
+                            features["forbidden_objects"] = [o["label"] for o in correlated_objs]
+
+                    # Risk Score & Suspicious Behavior Check
+                    is_suspicious = False
+                    suspicion_reason = "Normal"
+                    risk_score = 0.0
+                    severity = "NORMAL"
+                    category = "GENERAL"
+
+                    is_suspicious, suspicion_reason, risk_score, severity, category = engine.check_suspicious(
+                        sid, features, processed_bgr, bbox,
+                        total_student_count=total_students,
+                        audio_metrics=audio_metrics
+                    )
+                    if is_suspicious:
+                        current_alerts_count += 1
+
+                    # Render Overlays with Risk Badges
+                    draw_student_overlays(
+                        annotated_frame, bbox, sid, landmark_data, features,
+                        is_suspicious, suspicion_reason, risk_score=risk_score, severity=severity
+                    )
+
+                # Check Absence for Established Students who left the frame
+                if cfg.ENABLE_ABSENCE_DETECTION:
+                    for sid, info in list(established_students.items()):
+                        if sid not in current_ids and info["seen_count"] >= 5:
+                            time_since_seen = now - info["last_seen"]
+                            if time_since_seen > cfg.ABSENCE_TIMEOUT_SECONDS:
+                                absent_features = {
+                                    "is_absent": True,
+                                    "has_forbidden_object": False,
+                                    "forbidden_objects": [],
+                                    "yaw": 0.0,
+                                    "pitch": 0.0,
+                                    "mouth_open": False,
+                                    "hand_near_face": False,
+                                    "standing": False,
+                                    "leaning": False,
+                                }
+                                is_suspicious, suspicion_reason, risk_score, severity, category = engine.check_suspicious(
+                                    sid, absent_features, processed_bgr, bbox=None,
+                                    total_student_count=total_students,
+                                    audio_metrics=audio_metrics
+                                )
+                                if is_suspicious:
+                                    current_alerts_count += 1
+                                    h, w = annotated_frame.shape[:2]
+                                    cv2.rectangle(annotated_frame, (10, 10), (w - 10, 48), (0, 69, 255), -1)
+                                    cv2.putText(
+                                        annotated_frame,
+                                        f"[ABSENCE ALERT] Student {sid} absent for {time_since_seen:.1f}s (Risk: {risk_score:.0f}%)",
+                                        (20, 36),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2
+                                    )
+
+                # Clean up stale cache
+                stale_cache_ids = [sid for sid in cached_student_features if sid not in current_ids]
+                for sid in stale_cache_ids:
+                    if sid in cached_student_features:
+                        del cached_student_features[sid]
+
             SharedState.active_alert_count = current_alerts_count
             SharedState.current_frame = annotated_frame
             SharedState.student_risk_scores = engine.risk_scores
-            
+
             time.sleep(0.01)
             
     except KeyboardInterrupt:
@@ -277,6 +454,21 @@ def processing_loop():
 
 
 def main():
+    parser = argparse.ArgumentParser(description="AI Exam Hall Monitoring System")
+    parser.add_argument("--demo", action="store_true", help="Run in deterministic demo mode with synthetic feed")
+    parser.add_argument("--source", default=None, help="Camera source (0 for webcam, video path, or 'demo')")
+    parser.add_argument("--host", default=None, help="Flask server host (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=None, help="Flask server port (default: 5000)")
+    args = parser.parse_args()
+
+    is_demo = args.demo or (os.environ.get("DEMO_MODE", "").lower() in ("1", "true", "yes"))
+    if args.source is not None:
+        cfg.CAMERA_SOURCE = int(args.source) if args.source.isdigit() else args.source
+    if args.host is not None:
+        cfg.FLASK_HOST = args.host
+    if args.port is not None:
+        cfg.FLASK_PORT = args.port
+
     print("[MAIN] Initializing SQLite database...")
     init_db()
 
@@ -287,7 +479,7 @@ def main():
     signal.signal(signal.SIGINT, handle_shutdown)
     signal.signal(signal.SIGTERM, handle_shutdown)
     
-    proc_thread = threading.Thread(target=processing_loop, name="AI_Core_Thread")
+    proc_thread = threading.Thread(target=processing_loop, args=(is_demo,), name="AI_Core_Thread")
     proc_thread.daemon = True
     proc_thread.start()
     

@@ -62,8 +62,14 @@ class DatabaseManager:
         self._ensure_database_directory()
 
         conn = sqlite3.connect(
-            self.db_path
+            self.db_path,
+            timeout=10.0
         )
+
+        try:
+            conn.execute("PRAGMA journal_mode = WAL;")
+        except sqlite3.DatabaseError:
+            pass
 
         return conn
 
@@ -107,6 +113,12 @@ class DatabaseManager:
                     status TEXT DEFAULT 'UNREVIEWED'
                 )
             """)
+
+            # Performance indexes for queries and dashboard filters
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_student_id ON incidents(student_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_timestamp ON incidents(timestamp)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status)")
 
             # ----------------------------------
             # DATABASE MIGRATION SUPPORT

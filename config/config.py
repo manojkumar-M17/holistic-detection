@@ -79,6 +79,7 @@ EVENT_COOLDOWNS = {
     "AUDIO_ANOMALY": 8.0,
     "MULTIPLE_PERSONS": 15.0,
     "CELL_PHONE": 5.0,
+    "STUDENT_ABSENT": 10.0,
 }
 
 # Audio calibration & anomaly detection

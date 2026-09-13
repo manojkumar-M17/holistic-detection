@@ -64,10 +64,17 @@ def _events_from_reason(reason: str) -> list[str]:
 class ValidationRunner:
     """Process a local recording through the same components as ``main.py``."""
 
-    def __init__(self, video_path: str | os.PathLike[str], output_dir: str | os.PathLike[str] = "validation/results", model_path: str | None = None):
+    def __init__(
+        self,
+        video_path: str | os.PathLike[str],
+        output_dir: str | os.PathLike[str] = "validation/results",
+        model_path: str | None = None,
+        audio_provider: Any = None
+    ):
         self.video_path = Path(video_path)
         self.output_dir = Path(output_dir)
         self.model_path = model_path or cfg.YOLO_MODEL_PATH
+        self.audio_provider = audio_provider
 
     def run(self, session_name: str | None = None) -> dict[str, Any]:
         if not self.video_path.is_file():
@@ -113,7 +120,15 @@ class ValidationRunner:
                         "frame_number": frame_number,
                         "student_count": len(students),
                     })
-                    audio_metrics = None
+                    if self.audio_provider is not None:
+                        if callable(self.audio_provider):
+                            audio_metrics = self.audio_provider(timestamp)
+                        elif isinstance(self.audio_provider, dict):
+                            audio_metrics = self.audio_provider.get(frame_number)
+                        else:
+                            audio_metrics = getattr(self.audio_provider, "get_metrics", lambda: None)()
+                    else:
+                        audio_metrics = None
 
                     for student in students:
                         student_id = student["id"]

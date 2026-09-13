@@ -1,5 +1,6 @@
 import os
 import time
+import html
 from database.db_manager import get_all_incidents, get_stats
 import config.config as cfg
 
@@ -9,6 +10,9 @@ def generate_proctoring_report(exam_name=cfg.DEFAULT_EXAM_NAME, candidate_name=c
     summarizing total incidents, integrity score, severity metrics, and incident log details.
     Saved to the reports directory.
     """
+    safe_exam_name = html.escape(str(exam_name))
+    safe_candidate_name = html.escape(str(candidate_name))
+
     incidents = get_all_incidents()
     stats = get_stats()
     
@@ -29,18 +33,26 @@ def generate_proctoring_report(exam_name=cfg.DEFAULT_EXAM_NAME, candidate_name=c
     
     incidents_rows_html = ""
     for inc in incidents:
-        sev = inc.get("severity", "MEDIUM")
-        s_color = "#ef4444" if sev == "CRITICAL" else ("#f97316" if sev == "HIGH" else ("#f59e0b" if sev == "MEDIUM" else "#06b6d4"))
+        raw_sev = str(inc.get("severity", "MEDIUM")).upper()
+        sev = html.escape(raw_sev)
+        s_color = "#ef4444" if raw_sev == "CRITICAL" else ("#f97316" if raw_sev == "HIGH" else ("#f59e0b" if raw_sev == "MEDIUM" else "#06b6d4"))
         
+        inc_id = html.escape(str(inc.get('id', '')))
+        student_id = html.escape(str(inc.get('student_id', '')))
+        category = html.escape(str(inc.get('category', 'GENERAL')))
+        activity = html.escape(str(inc.get('activity', '')))
+        timestamp = html.escape(str(inc.get('timestamp', '')))
+        risk_score_val = float(inc.get('risk_score', 0))
+
         incidents_rows_html += f"""
         <tr>
-            <td>#{inc['id']}</td>
-            <td>Student {inc['student_id']}</td>
+            <td>#{inc_id}</td>
+            <td>Student {student_id}</td>
             <td><span style="background:{s_color}22; color:{s_color}; padding:2px 8px; border-radius:4px; font-weight:600; font-size:12px;">{sev}</span></td>
-            <td>{inc.get('category', 'GENERAL')}</td>
-            <td>{inc['activity']}</td>
-            <td>{inc.get('risk_score', 0):.1f}%</td>
-            <td>{inc['timestamp']}</td>
+            <td>{category}</td>
+            <td>{activity}</td>
+            <td>{risk_score_val:.1f}%</td>
+            <td>{timestamp}</td>
         </tr>
         """
 
@@ -48,7 +60,7 @@ def generate_proctoring_report(exam_name=cfg.DEFAULT_EXAM_NAME, candidate_name=c
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Proctoring Audit Report - {exam_name}</title>
+    <title>Proctoring Audit Report - {safe_exam_name}</title>
     <style>
         body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 40px; }}
         .container {{ max-width: 900px; margin: 0 auto; background: #1e293b; border-radius: 12px; padding: 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }}
@@ -80,7 +92,7 @@ def generate_proctoring_report(exam_name=cfg.DEFAULT_EXAM_NAME, candidate_name=c
         <div class="header">
             <div>
                 <h1 class="title">AI Proctoring Audit Report</h1>
-                <div class="meta">Exam: <strong>{exam_name}</strong> | Candidate: <strong>{candidate_name}</strong></div>
+                <div class="meta">Exam: <strong>{safe_exam_name}</strong> | Candidate: <strong>{safe_candidate_name}</strong></div>
                 <div class="meta">Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}</div>
             </div>
             <div class="badge">{status_badge} ({integrity_score}%)</div>
