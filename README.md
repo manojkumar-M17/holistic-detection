@@ -309,7 +309,23 @@ git diff --check
 
 ---
 
-## 18. Known Limitations & Production Caveats
+## 18. Model Training & Dataset Engineering Pipeline
+
+The system includes a fully reproducible data engineering and YOLO training pipeline (`training/`) designed to train and benchmark custom models without requiring human volunteers:
+
+- **Canonical Taxonomy**: Standardizes 8 exam object classes (`person`, `phone`, `paper`, `book`, `calculator`, `laptop`, `watch`, `earphone_or_earbud`).
+- **Procedural Scene Synthesis**: Generates photorealistic synthetic exam desk scenes with random textures, lighting variations, and geometric objects (`training/scripts/generate_synthetic.py`).
+- **Quality & Deduplication**: Quality audit script (`check_dataset.py`) and perceptual dHash deduplication (`deduplicate_dataset.py`) to prevent train/val leakage.
+- **Group-Aware Splitting**: Isolates sessions and sources into 70/15/15 train/val/test partitions (`split_dataset.py`).
+- **Custom YOLO Training**: Automated Ultralytics training CLI (`train.py`) supporting fast CPU smoke tests and versioned artifact packaging in `models/custom/`.
+- **Objective Evaluation**: Compares candidate models against the production baseline with delta analysis and HTML reports (`evaluate.py`).
+- **Inference Benchmarking**: Measures mean, median, p95 latency and FPS (`benchmark.py`).
+
+For full technical specifications, dataset licenses, and commands, refer to [`training/README.md`](file:///home/shyam/Desktop/holistic-detection/training/README.md) and the [Model Card](file:///home/shyam/Desktop/holistic-detection/docs/model_card.md).
+
+---
+
+## 19. Known Limitations & Production Caveats
 
 1. **Extreme Low-Light Conditions**: MediaPipe face mesh degrades under severe underexposure (< 15 lux). Ensure adequate exam hall illumination.
 2. **Severe Occlusion**: If a candidate completely covers their face with a book or clothing, gaze estimation cannot resolve landmarks, falling back to hand-near-face or object correlation.
@@ -318,7 +334,7 @@ git diff --check
 
 ---
 
-## 19. License, Contributions & Academic Citations
+## 20. License, Contributions & Academic Citations
 
 ### License
 This project is licensed under the **MIT License**. You are free to inspect, modify, and integrate this software in academic, commercial, or institutional environments.

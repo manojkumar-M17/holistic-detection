@@ -27,9 +27,24 @@ validation/recordings/
 validation/results/
 validation/reports/
 validation/generated/
+# Video and Recording formats
 *.mp4
 *.avi
 *.mov
+*.mkv
+
+# Training & Dataset artifacts
+training/datasets/raw/
+training/datasets/external/
+training/datasets/normalized/
+training/datasets/synthetic/
+training/datasets/processed/
+training/runs/
+training/experiments/
+training/reports/generated/
+models/custom/**/*.pt
+models/custom/**/*.onnx
+!models/custom/**/metadata.json
 
 # IDE files
 .idea/

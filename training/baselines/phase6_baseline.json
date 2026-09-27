@@ -1,0 +1,16 @@
+{
+  "phase": 6,
+  "git_commit": "32fcde6c432fdbcc0222ec0cf1489ed75231338b",
+  "test_count": 259,
+  "test_failures": 0,
+  "test_errors": 0,
+  "test_warnings": 2,
+  "pip_check": "No broken requirements found.",
+  "python_version": "3.12.3",
+  "ultralytics_version": "8.4.149",
+  "opencv_version": "4.11.0",
+  "numpy_version": "1.26.4",
+  "production_model": "/home/shyam/Desktop/holistic-detection/weights/yolov8n.pt",
+  "recorded_at": "2026-09-27T13:17:00+05:30",
+  "status": "BASELINE_VERIFIED"
+}
