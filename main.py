@@ -476,8 +476,11 @@ def main():
         print("\n[MAIN] Shutdown signal received.")
         shutdown_event.set()
 
-    signal.signal(signal.SIGINT, handle_shutdown)
-    signal.signal(signal.SIGTERM, handle_shutdown)
+    try:
+        signal.signal(signal.SIGINT, handle_shutdown)
+        signal.signal(signal.SIGTERM, handle_shutdown)
+    except (ValueError, AttributeError):
+        pass
     
     proc_thread = threading.Thread(target=processing_loop, args=(is_demo,), name="AI_Core_Thread")
     proc_thread.daemon = True
