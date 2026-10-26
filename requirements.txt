@@ -6,4 +6,4 @@ sounddevice
 flask
 numpy
 pandas
-pytest
+pytestgunicorn
