@@ -102,53 +102,59 @@ class AudioEngine:
             self._process_audio_chunk(simulated_chunk)
             time.sleep(0.1)
 
+    
     def _process_audio_chunk(self, audio_data):
         if len(audio_data) == 0:
             return
-        
+
         rms = np.sqrt(np.mean(np.square(audio_data)))
         db = 20 * math.log10(max(rms, 1e-5))
-        
-        # Zero crossing rate (indicates speech / high pitch whispers)
         zcr = np.mean(np.abs(np.diff(np.signbit(audio_data))))
-        
         speech_detected = (rms > self.threshold) and (zcr > 0.05)
-        alert_triggered = rms > self.threshold
+        now = time.time()
 
         with self.lock:
             self.current_rms = float(rms)
             self.volume_db = float(db)
-            self.is_speech = speech_detected
-            # Calibration: accumulate baseline for initial seconds
-            if self._calibrated_baseline is None:
-                now = time.time()
-                if self._calibration_start is None:
-                    self._calibration_start = now
-                    self._calibrated_baseline = rms
-                else:
-                    # exponentially average baseline
-                    self._calibrated_baseline = (self._calibrated_baseline * 0.8) + (rms * 0.2)
+            self.is_speech = bool(speech_detected)
 
-                # Not ready to alert until calibration window passes
-                if now - self._calibration_start < cfg.AUDIO_CALIBRATION_SECONDS:
-                    self.audio_alert = False
-                    return
+            if self._calibration_start is None:
+                self._calibration_start = now
+                self._calibrated_baseline = float(rms)
 
-            # Determine dynamic threshold
-            dynamic_threshold = max(self.threshold, self._calibrated_baseline * cfg.AUDIO_CALIBRATION_MULTIPLIER)
+            elif now - self._calibration_start < cfg.AUDIO_CALIBRATION_SECONDS:
+                self._calibrated_baseline = (
+                    self._calibrated_baseline * 0.8 + float(rms) * 0.2
+                )
 
-            if rms > dynamic_threshold and (self._anomaly_start is None):
-                self._anomaly_start = time.time()
-
-            if self._anomaly_start and (time.time() - self._anomaly_start) >= cfg.AUDIO_MIN_ANOMALY_DURATION:
-                # respect cooldown
-                if time.time() - self._last_alert_time > cfg.AUDIO_ALERT_COOLDOWN:
-                    self.audio_alert = True
-                    self._last_alert_time = time.time()
-                else:
-                    self.audio_alert = False
-            else:
+            if now - self._calibration_start < cfg.AUDIO_CALIBRATION_SECONDS:
                 self.audio_alert = False
+                self._anomaly_start = None
+                return
+
+            dynamic_threshold = max(
+                self.threshold,
+                self._calibrated_baseline * cfg.AUDIO_CALIBRATION_MULTIPLIER
+            )
+
+            if rms > dynamic_threshold:
+                if self._anomaly_start is None:
+                    self._anomaly_start = now
+
+                duration = now - self._anomaly_start
+
+                if (
+                    duration >= cfg.AUDIO_MIN_ANOMALY_DURATION
+                    and not self.audio_alert
+                    and now - self._last_alert_time >= cfg.AUDIO_ALERT_COOLDOWN
+                ):
+                    self.audio_alert = True
+                    self._last_alert_time = now
+
+            else:
+                self._anomaly_start = None
+                self.audio_alert = False
+
 
     def get_metrics(self):
         with self.lock:
