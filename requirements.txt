@@ -7,3 +7,4 @@ flask
 numpy
 pandas
 pytestgunicorn
+gunicorn
