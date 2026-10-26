@@ -1,3 +1,4 @@
+
 opencv-contrib-python==4.11.0.86
 mediapipe==0.10.21
 ultralytics
@@ -6,5 +7,6 @@ sounddevice
 flask
 numpy
 pandas
-pytestgunicorn
+pytest
 gunicorn
+psycopg[binary]
