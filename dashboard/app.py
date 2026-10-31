@@ -1,20 +1,26 @@
 import time
 import json
 import os
+import logging
+import math
+import sqlite3
+import hmac
 import cv2
 import numpy as np
 from pathlib import Path
 from flask import Flask, render_template, Response, jsonify, request, make_response, send_from_directory
+from werkzeug.exceptions import HTTPException
 from datetime import date, datetime
 from enum import Enum
 import config.config as cfg
 from database.db_manager import (
-    get_all_incidents, get_stats, init_db, update_incident_status,
+    get_all_incidents, get_manager, get_stats, init_db, update_incident_status,
     export_incidents_csv, clear_all_incidents
 )
 from modules.report_generator import generate_proctoring_report
 
 app = Flask(__name__)
+logger = logging.getLogger(__name__)
 
 FRONTEND_ORIGIN = os.environ.get(
     "FRONTEND_ORIGIN",
@@ -22,13 +28,40 @@ FRONTEND_ORIGIN = os.environ.get(
 ).strip().rstrip("/")
 
 # Gunicorn imports this module directly; main.py's initialization is not run in that deployment.
-init_db()
+DATABASE_SCHEMA_INITIALIZED = bool(init_db())
+logger.info("Initialized Flask database schema")
+
+WRITE_ENDPOINTS = {
+    "api_update_status",
+    "api_clear_incidents",
+    "api_manage_config",
+    "control_monitoring",
+}
+
+READ_ENDPOINTS = {
+    "stream_events",
+    "api_stats",
+    "api_alerts",
+    "api_export_csv",
+    "api_download_report",
+    "api_manage_config",
+    "api_validation_results",
+    "api_validation_latest",
+    "get_screenshot",
+    "video_feed",
+}
+
+PROTECTED_ENDPOINTS = WRITE_ENDPOINTS | READ_ENDPOINTS
 
 
 @app.after_request
 def add_api_cors_headers(response):
     origin = request.headers.get("Origin")
-    if not request.path.startswith("/api/"):
+    if not (
+        request.path.startswith("/api/")
+        or request.path.startswith("/screenshots/")
+        or request.path == "/video_feed"
+    ):
         return response
 
     vary_headers = {
@@ -52,11 +85,58 @@ def add_api_cors_headers(response):
         if allowed_methods:
             response.headers["Access-Control-Allow-Methods"] = ", ".join(allowed_methods)
 
-        if request.url_rule.endpoint in {"api_update_status", "api_manage_config"}:
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        if request.url_rule.endpoint in PROTECTED_ENDPOINTS:
+            allowed_headers = ["X-API-Key"]
+            if request.url_rule.endpoint in {"api_update_status", "api_manage_config"}:
+                allowed_headers.insert(0, "Content-Type")
+            response.headers["Access-Control-Allow-Headers"] = ", ".join(allowed_headers)
             response.headers["Access-Control-Max-Age"] = "600"
 
     return response
+
+
+@app.before_request
+def require_api_key():
+    protected_write = request.method == "POST" and request.endpoint in WRITE_ENDPOINTS
+    protected_read = request.method in {"GET", "HEAD"} and request.endpoint in READ_ENDPOINTS
+    if request.method == "OPTIONS" or not (protected_write or protected_read):
+        return None
+
+    expected_token = os.environ.get("API_WRITE_TOKEN", "")
+    if not expected_token:
+        logger.error("Rejected protected request because API_WRITE_TOKEN is not configured")
+        return jsonify({"error": "Data access and write operations are disabled until API_WRITE_TOKEN is configured."}), 503
+
+    supplied_token = request.headers.get("X-API-Key", "")
+    if not hmac.compare_digest(
+        supplied_token.encode("utf-8"),
+        expected_token.encode("utf-8"),
+    ):
+        return jsonify({"error": "A valid prototype API access key is required."}), 401
+
+    return None
+
+
+@app.errorhandler(HTTPException)
+def handle_api_http_error(error):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": error.description}), error.code
+    return error
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    if not request.path.startswith("/api/"):
+        raise error
+
+    logger.error(
+        "Unhandled API error for %s %s",
+        request.method,
+        request.path,
+        exc_info=(type(error), error, error.__traceback__),
+    )
+    return jsonify({"error": "Internal server error"}), 500
+
 
 # Global state sharing class
 class SharedState:
@@ -159,6 +239,38 @@ def stream_events():
     """
     return Response(event_stream(), mimetype='text/event-stream')
 
+@app.route('/api/health')
+def api_health():
+    """Report application and database readiness without exposing filesystem paths."""
+    try:
+        database = get_manager().health_check()
+    except (OSError, sqlite3.Error):
+        logger.exception("Database health check failed")
+        return jsonify({
+            "status": "degraded",
+            "application": "running",
+            "database": {
+                "status": "unavailable",
+                "path_configured": True,
+                "required_tables": {"incidents": False},
+                "missing_required_columns": None,
+                "schema_initialized": DATABASE_SCHEMA_INITIALIZED,
+            },
+        }), 503
+
+    ready = database["connected"] and database["schema_ready"]
+    return jsonify({
+        "status": "ok" if ready else "degraded",
+        "application": "running",
+        "database": {
+            "status": "connected",
+            "path_configured": True,
+            "required_tables": database["required_tables"],
+            "missing_required_columns": database["missing_required_columns"],
+            "schema_initialized": DATABASE_SCHEMA_INITIALIZED,
+        },
+    }), 200 if ready else 503
+
 @app.route('/api/stats')
 def api_stats():
     """
@@ -200,7 +312,9 @@ def api_update_status(incident_id):
     """
     Updates the status of an incident ('UNREVIEWED', 'CONFIRMED', 'DISMISSED').
     """
-    data = request.get_json() or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "A JSON incident status object is required"}), 400
     new_status = data.get("status")
     if not new_status:
         return jsonify({"error": "Missing status parameter"}), 400
@@ -248,25 +362,47 @@ def api_manage_config():
     Gets or updates detection thresholds live.
     """
     if request.method == 'POST':
-        data = request.get_json() or {}
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"error": "A JSON configuration object is required"}), 400
+
+        numeric_updates = {}
+        numeric_fields = {
+            "yaw": "HEAD_YAW_THRESHOLD",
+            "pitch": "HEAD_PITCH_THRESHOLD",
+            "duration": "SUSPICIOUS_DURATION",
+            "audio_threshold": "AUDIO_NOISE_THRESHOLD",
+        }
         try:
-            if "yaw" in data:
-                cfg.HEAD_YAW_THRESHOLD = float(data["yaw"])
-            if "pitch" in data:
-                cfg.HEAD_PITCH_THRESHOLD = float(data["pitch"])
-            if "duration" in data:
-                cfg.SUSPICIOUS_DURATION = float(data["duration"])
-            if "audio_threshold" in data:
-                cfg.AUDIO_NOISE_THRESHOLD = float(data["audio_threshold"])
+            for key, attribute in numeric_fields.items():
+                if key in data:
+                    value = data[key]
+                    if isinstance(value, bool):
+                        raise ValueError
+                    parsed = float(value)
+                    if not math.isfinite(parsed):
+                        raise ValueError
+                    numeric_updates[attribute] = parsed
         except (TypeError, ValueError):
             return jsonify({"error": "Numeric configuration values are invalid"}), 400
 
-        if "enable_object_detection" in data:
-            cfg.ENABLE_OBJECT_DETECTION = bool(data["enable_object_detection"])
-        if "enable_absence_detection" in data:
-            cfg.ENABLE_ABSENCE_DETECTION = bool(data["enable_absence_detection"])
-        if "enable_audio_detection" in data:
-            cfg.ENABLE_AUDIO_DETECTION = bool(data["enable_audio_detection"])
+        boolean_fields = {
+            "enable_object_detection": "ENABLE_OBJECT_DETECTION",
+            "enable_absence_detection": "ENABLE_ABSENCE_DETECTION",
+            "enable_audio_detection": "ENABLE_AUDIO_DETECTION",
+        }
+        if any(
+            key in data and not isinstance(data[key], bool)
+            for key in boolean_fields
+        ):
+            return jsonify({"error": "Configuration feature flags must be booleans"}), 400
+
+        for attribute, value in numeric_updates.items():
+            setattr(cfg, attribute, value)
+        for key, attribute in boolean_fields.items():
+            if key in data:
+                setattr(cfg, attribute, data[key])
+
         if SharedState.suspicious_engine_ref:
             SharedState.suspicious_engine_ref.update_thresholds(
                 head_yaw_threshold=cfg.HEAD_YAW_THRESHOLD,
@@ -329,7 +465,7 @@ def get_screenshot(filename):
     """
     return send_from_directory(cfg.SCREENSHOT_DIR, filename)
 
-@app.route('/api/control/<action>')
+@app.route('/api/control/<action>', methods=['POST'])
 def control_monitoring(action):
     """
     API endpoint to pause or resume monitoring.
@@ -340,7 +476,7 @@ def control_monitoring(action):
     elif action == "resume":
         SharedState.monitoring_active = True
         return jsonify({"status": "running"})
-    return jsonify({"status": "unknown"})
+    return jsonify({"error": "Unknown monitoring action"}), 404
 
 _flask_server = None
 _flask_socket = None

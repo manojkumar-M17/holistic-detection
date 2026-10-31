@@ -9,9 +9,12 @@ import sqlite3
 import os
 import csv
 import io
+import logging
 from datetime import datetime
 
 from config.config import DB_PATH
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
@@ -79,11 +82,10 @@ class DatabaseManager:
         Create incidents table and apply migrations.
         """
 
-        self._ensure_database_directory()
-
-        conn = self._get_connection()
-
+        conn = None
         try:
+            self._ensure_database_directory()
+            conn = self._get_connection()
             conn.execute("PRAGMA journal_mode = WAL;")
             conn.execute("BEGIN IMMEDIATE;")
 
@@ -141,7 +143,11 @@ class DatabaseManager:
 
                 "status":
                     "ALTER TABLE incidents "
-                    "ADD COLUMN status TEXT DEFAULT 'UNREVIEWED'"
+                    "ADD COLUMN status TEXT DEFAULT 'UNREVIEWED'",
+
+                "screenshot_path":
+                    "ALTER TABLE incidents "
+                    "ADD COLUMN screenshot_path TEXT"
             }
 
             for column, query in migrations.items():
@@ -160,10 +166,60 @@ class DatabaseManager:
 
             return True
 
+        except (OSError, sqlite3.Error):
+            if conn is not None:
+                conn.rollback()
+            logger.exception(
+                "Failed to initialize SQLite schema for configured database"
+            )
+            raise
+
         finally:
+            if conn is not None:
+                conn.close()
 
+    def health_check(self):
+        """Check database connectivity and required schema without exposing its path."""
+        conn = self._get_connection()
+
+        try:
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+            tables = {row[0] for row in cursor.fetchall()}
+            required_tables = {"incidents"}
+            table_status = {
+                table: table in tables
+                for table in sorted(required_tables)
+            }
+            required_columns = {
+                "id",
+                "student_id",
+                "activity",
+                "timestamp",
+                "screenshot_path",
+                "severity",
+                "category",
+                "risk_score",
+                "status",
+            }
+            columns = set()
+            if table_status["incidents"]:
+                columns = {
+                    row[1]
+                    for row in conn.execute(
+                        "PRAGMA table_info(incidents)"
+                    ).fetchall()
+                }
+            missing_columns = sorted(required_columns - columns)
+            return {
+                "connected": True,
+                "required_tables": table_status,
+                "missing_required_columns": missing_columns,
+                "schema_ready": all(table_status.values()) and not missing_columns,
+            }
+        finally:
             conn.close()
-
 
     # ==========================================
     # INSERT INCIDENT
