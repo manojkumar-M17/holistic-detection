@@ -565,8 +565,11 @@
                 <p>Multi-Modal Holistic Vision & AI Behavioral Proctoring Platform</p>
             </div>
             <div class="header-actions">
-                <a href="/api/report/pdf" target="_blank" class="btn btn-secondary" style="text-decoration: none;">
-                    <i class="fa-solid fa-file-pdf" style="color:#ef4444;"></i> Printable PDF Report
+                <input id="operator-api-key" type="password" autocomplete="off" placeholder="Prototype API key"
+                       aria-label="Operator API key"
+                       style="background:#0f1524;border:1px solid var(--card-border);border-radius:8px;color:var(--text-main);padding:10px 12px;width:170px;">
+                <a href="/api/report/pdf" onclick="openPrintableReport(event)" class="btn btn-secondary" style="text-decoration: none;">
+                    <i class="fa-solid fa-file-lines" style="color:#ef4444;"></i> Printable HTML Report
                 </a>
                 <button class="btn btn-secondary" onclick="toggleAudio()" id="btn-audio">
                     <i class="fa-solid fa-volume-high"></i> <span id="audio-text">Audio On</span>
@@ -835,6 +838,54 @@
         let activeModalIncidentId = null;
         let categoryChart = null;
         let lastAlertId = -1;
+        let sseController = null;
+        let videoController = null;
+        let videoObjectUrl = null;
+        let evidenceObjectUrl = null;
+
+        function accessHeaders(includeContentType = false) {
+            const token = document.getElementById('operator-api-key').value.trim();
+            if (!token) return null;
+            return {
+                ...(includeContentType ? { 'Content-Type': 'application/json' } : {}),
+                'X-API-Key': token
+            };
+        }
+
+        function operatorHeaders(includeContentType = false) {
+            const headers = accessHeaders(includeContentType);
+            if (!headers) alert('Enter the temporary prototype API access key first.');
+            return headers;
+        }
+
+        function responseError(response) {
+            return response.json().then(body => {
+                throw new Error(body.error || `Request failed (${response.status})`);
+            });
+        }
+
+        function openPrintableReport(event) {
+            event.preventDefault();
+            const headers = operatorHeaders();
+            if (!headers) return;
+            const reportWindow = window.open('about:blank', '_blank');
+            if (!reportWindow) {
+                alert('Allow pop-ups to open the printable report.');
+                return;
+            }
+            reportWindow.opener = null;
+            fetch('/api/report/pdf', { headers })
+                .then(response => response.ok ? response.blob() : responseError(response))
+                .then(blob => {
+                    const url = URL.createObjectURL(blob);
+                    reportWindow.location.href = url;
+                    setTimeout(() => URL.revokeObjectURL(url), 60000);
+                })
+                .catch(error => {
+                    reportWindow.close();
+                    alert(`Printable report failed: ${error.message}`);
+                });
+        }
 
         // Initialize Web Audio API Synth
         const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -869,8 +920,13 @@
 
         function toggleMonitoring() {
             const action = isMonitoring ? 'pause' : 'resume';
-            fetch(`/api/control/${action}`)
-                .then(res => res.json())
+            const headers = operatorHeaders();
+            if (!headers) return;
+            fetch(`/api/control/${action}`, { method: 'POST', headers })
+                .then(async response => {
+                    if (!response.ok) throw new Error((await response.json()).error || `Request failed (${response.status})`);
+                    return response.json();
+                })
                 .then(data => {
                     const badge = document.getElementById('status-badge');
                     const statusText = document.getElementById('status-text');
@@ -890,7 +946,8 @@
                         btnText.innerText = 'Pause Feed';
                         btnIcon.className = 'fa-solid fa-pause';
                     }
-                });
+                })
+                .catch(error => alert(`Monitoring control failed: ${error.message}`));
         }
 
         function initCharts() {
@@ -918,9 +975,73 @@
             });
         }
 
+        function startVideoFeed() {
+            if (videoController) videoController.abort();
+            const headers = accessHeaders();
+            if (!headers) return;
+            videoController = new AbortController();
+            const signal = videoController.signal;
+            fetch('/video_feed', { headers, signal })
+                .then(async response => {
+                    if (!response.ok) return responseError(response);
+                    if (!response.body) throw new Error('The video stream is unavailable.');
+                    const reader = response.body.getReader();
+                    let buffer = new Uint8Array(0);
+                    try {
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) return;
+                            const combined = new Uint8Array(buffer.length + value.length);
+                            combined.set(buffer);
+                            combined.set(value, buffer.length);
+                            buffer = combined;
+                            while (true) {
+                                let start = -1;
+                                for (let index = 0; index < buffer.length - 1; index++) {
+                                    if (buffer[index] === 0xff && buffer[index + 1] === 0xd8) {
+                                        start = index;
+                                        break;
+                                    }
+                                }
+                                if (start < 0) {
+                                    buffer = buffer.slice(Math.max(0, buffer.length - 1));
+                                    break;
+                                }
+                                let end = -1;
+                                for (let index = start + 2; index < buffer.length - 1; index++) {
+                                    if (buffer[index] === 0xff && buffer[index + 1] === 0xd9) {
+                                        end = index + 2;
+                                        break;
+                                    }
+                                }
+                                if (end < 0) {
+                                    buffer = buffer.slice(start);
+                                    break;
+                                }
+                                const previousUrl = videoObjectUrl;
+                                videoObjectUrl = URL.createObjectURL(new Blob([buffer.slice(start, end)], { type: 'image/jpeg' }));
+                                const image = document.getElementById('video-stream');
+                                image.onload = () => {
+                                    if (previousUrl) URL.revokeObjectURL(previousUrl);
+                                };
+                                image.src = videoObjectUrl;
+                                buffer = buffer.slice(end);
+                            }
+                        }
+                    } finally {
+                        reader.releaseLock();
+                    }
+                })
+                .catch(error => {
+                    if (!signal.aborted) console.error('Video stream failed:', error);
+                });
+        }
+
         function updateStats() {
-            fetch('/api/stats')
-                .then(res => res.json())
+            const headers = accessHeaders();
+            if (!headers) return;
+            fetch('/api/stats', { headers })
+                .then(res => res.ok ? res.json() : responseError(res))
                 .then(data => {
                     document.getElementById('stat-students').innerText = data.active_students;
                     document.getElementById('stat-active-alerts').innerText = data.active_alerts;
@@ -957,21 +1078,47 @@
         }
 
         function initSSE() {
-            try {
-                const sse = new EventSource('/api/stream-events');
-                sse.onmessage = function(event) {
-                    const data = JSON.parse(event.data);
-                    if (data.new_alert) {
-                        if (data.new_alert.id > lastAlertId) {
-                            lastAlertId = data.new_alert.id;
-                            if (data.new_alert.severity === 'CRITICAL' || data.new_alert.severity === 'HIGH') {
-                                playAlertSound();
+            if (sseController) sseController.abort();
+            const headers = accessHeaders();
+            if (!headers) return;
+            sseController = new AbortController();
+            const signal = sseController.signal;
+            fetch('/api/stream-events', { headers, signal })
+                .then(async response => {
+                    if (!response.ok) return responseError(response);
+                    if (!response.body) throw new Error('The event stream is unavailable.');
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    try {
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) return;
+                            buffer += decoder.decode(value, { stream: true });
+                            const messages = buffer.split(/\r?\n\r?\n/);
+                            buffer = messages.pop() || '';
+                            messages.forEach(message => {
+                                const data = message.split(/\r?\n/)
+                                    .filter(line => line.startsWith('data:'))
+                                    .map(line => line.slice(5).trimStart()).join('\n');
+                                if (!data) return;
+                                const eventData = JSON.parse(data);
+                                if (eventData.new_alert && eventData.new_alert.id > lastAlertId) {
+                                    lastAlertId = eventData.new_alert.id;
+                                    if (eventData.new_alert.severity === 'CRITICAL' || eventData.new_alert.severity === 'HIGH') {
+                                        playAlertSound();
+                                    }
+                                    fetchAlerts();
+                                }
                             }
-                            fetchAlerts();
                         }
+                    } finally {
+                        reader.releaseLock();
                     }
-                };
-            } catch(e) {}
+                })
+                .catch(error => {
+                    if (!signal.aborted) console.error('Event stream failed:', error);
+                });
         }
 
         function fetchAlerts() {
@@ -987,8 +1134,10 @@
                 status: status
             });
 
-            fetch(`/api/alerts?${queryParams}`)
-                .then(res => res.json())
+            const headers = accessHeaders();
+            if (!headers) return;
+            fetch(`/api/alerts?${queryParams}`, { headers })
+                .then(res => res.ok ? res.json() : responseError(res))
                 .then(incidents => {
                     const tbody = document.getElementById('incidents-table-body');
                     const warningList = document.getElementById('warning-list');
@@ -1051,26 +1200,47 @@
         }
 
         function changeIncidentStatus(id, newStatus) {
+            const headers = operatorHeaders(true);
+            if (!headers) return;
             fetch(`/api/incidents/${id}/status`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({ status: newStatus })
-            }).then(() => fetchAlerts());
+            }).then(async response => {
+                if (!response.ok) throw new Error((await response.json()).error || `Request failed (${response.status})`);
+                fetchAlerts();
+            }).catch(error => {
+                fetchAlerts();
+                alert(`Incident review failed: ${error.message}`);
+            });
         }
 
         function clearAllLogs() {
             if (confirm("Are you sure you want to clear all logged incidents?")) {
-                fetch('/api/incidents/clear', { method: 'POST' })
-                    .then(() => {
+                const headers = operatorHeaders();
+                if (!headers) return;
+                fetch('/api/incidents/clear', { method: 'POST', headers })
+                    .then(async response => {
+                        if (!response.ok) throw new Error((await response.json()).error || `Request failed (${response.status})`);
                         fetchAlerts();
                         updateStats();
-                    });
+                    }).catch(error => alert(`Clearing incidents failed: ${error.message}`));
             }
         }
 
         function showEvidenceModal(path, studentId, activity, time, incidentId) {
             activeModalIncidentId = incidentId;
-            document.getElementById('modal-image').src = '/' + path;
+            if (evidenceObjectUrl) URL.revokeObjectURL(evidenceObjectUrl);
+            const filename = String(path || '').split(/[\\/]/).filter(Boolean).pop();
+            const headers = accessHeaders();
+            if (!filename || !headers) return;
+            fetch(`/screenshots/${encodeURIComponent(filename)}`, { headers })
+                .then(response => response.ok ? response.blob() : responseError(response))
+                .then(blob => {
+                    evidenceObjectUrl = URL.createObjectURL(blob);
+                    document.getElementById('modal-image').src = evidenceObjectUrl;
+                })
+                .catch(error => alert(`Evidence could not be opened: ${error.message}`));
             document.getElementById('modal-student').innerText = `Student ${studentId}`;
             document.getElementById('modal-activity').innerText = activity;
             document.getElementById('modal-time').innerText = time;
@@ -1079,6 +1249,11 @@
 
         function hideModal() {
             document.getElementById('evidence-modal').style.display = 'none';
+            document.getElementById('modal-image').src = '';
+            if (evidenceObjectUrl) {
+                URL.revokeObjectURL(evidenceObjectUrl);
+                evidenceObjectUrl = null;
+            }
         }
 
         function closeModal(e) {
@@ -1093,7 +1268,12 @@
         }
 
         function openConfigModal() {
-            fetch('/api/config')
+            const headers = accessHeaders();
+            if (!headers) {
+                alert('Enter the temporary prototype API access key first.');
+                return;
+            }
+            fetch('/api/config', { headers })
                 .then(res => res.json())
                 .then(cfg => {
                     document.getElementById('cfg-yaw').value = cfg.yaw_threshold;
@@ -1116,6 +1296,8 @@
         }
 
         function saveConfigSettings() {
+            const headers = operatorHeaders(true);
+            if (!headers) return;
             const yaw = document.getElementById('cfg-yaw').value;
             const pitch = document.getElementById('cfg-pitch').value;
             const audThresh = document.getElementById('cfg-audio-threshold').value;
@@ -1126,7 +1308,7 @@
 
             fetch('/api/config', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     yaw: yaw,
                     pitch: pitch,
@@ -1136,10 +1318,11 @@
                     enable_absence_detection: enableAbs,
                     enable_audio_detection: enableAud
                 })
-            }).then(() => {
+            }).then(async response => {
+                if (!response.ok) throw new Error((await response.json()).error || `Request failed (${response.status})`);
                 hideConfigModal();
-                alert("Proctoring sensitivity settings updated live!");
-            });
+                alert("Proctoring sensitivity settings updated live.");
+            }).catch(error => alert(`Saving configuration failed: ${error.message}`));
         }
 
         window.onload = function() {
@@ -1147,6 +1330,13 @@
             updateStats();
             fetchAlerts();
             initSSE();
+            startVideoFeed();
+            document.getElementById('operator-api-key').addEventListener('change', () => {
+                updateStats();
+                fetchAlerts();
+                initSSE();
+                startVideoFeed();
+            });
             setInterval(updateStats, 2000);
             setInterval(fetchAlerts, 4000);
         };

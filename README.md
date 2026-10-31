@@ -287,14 +287,52 @@ The Flask dashboard initializes and migrates its SQLite schema when `dashboard.a
 
 For the Vercel frontend, configure these Render environment variables:
 
-- `FRONTEND_ORIGIN=https://holistic-detection.vercel.app` — exact browser origin allowed to read `/api/*` responses. Do not add a trailing slash or use `*`.
+- `FRONTEND_ORIGIN=https://holistic-detection.vercel.app` — exact browser origin allowed to read protected API and evidence responses. Do not add a trailing slash or use `*`.
+- `API_WRITE_TOKEN=<long-random-prototype-key>` — required for protected data reads and all write operations, including incident review/clear, configuration updates, monitoring controls, reports, exports, SSE, screenshots, and the MJPEG feed. If the variable is missing, protected requests fail closed with HTTP 503; a missing or invalid key returns HTTP 401.
 - `DB_PATH=/var/data/exam_monitoring.db` — set this to a file on an attached Render persistent disk. Create/mount the disk at `/var/data` before deploying. Without a persistent disk, the local SQLite file can be lost when the service is replaced.
+
+`API_WRITE_TOKEN` is a temporary prototype access restriction, not authentication. It is a shared key entered into the browser and is therefore visible to users who enter it; it does not provide user identity, roles, or audit attribution. Do not use this mechanism as an institutional security boundary. Production institutional use requires per-user server-side authentication and authorization for both reads and writes, including evidence access.
 
 Keep the service's existing start command if it also launches the AI processing loop. The WSGI database initialization is compatible with direct imports of `dashboard.app:app`; do not switch away from the existing monitoring entry point without separately verifying camera and detector startup.
 
-CORS is limited to the configured frontend origin and existing `/api/*` routes. Preflight method lists are derived from each Flask route, so unsupported methods such as `PATCH` are not advertised. JSON content-type permission is returned only for the existing incident-status and configuration POST routes. Credentials are not enabled.
+CORS is limited to the configured frontend origin and existing API/evidence routes. Preflight method lists are derived from each Flask route, so unsupported methods such as `PATCH` are not advertised. JSON content-type permission is returned only for the existing incident-status and configuration POST routes; `X-API-Key` is allowed on protected reads and writes. Credentials are not enabled. CORS is not an authentication mechanism.
 
-Before changing `DB_PATH` on a service with existing incident records, stop writes and use SQLite's backup procedure to copy the current database to the persistent disk; do not point the deployment at a new empty database or copy an active WAL database file without its committed WAL contents.
+| Route | Methods | Access / purpose |
+| --- | --- | --- |
+| `/api/health` | GET | Readiness status for the app, SQLite connection, and required `incidents` table; does not expose the database path |
+| `/api/stats`, `/api/alerts`, `/api/stream-events` | GET | Telemetry, incident records, and SSE; requires `X-API-Key` |
+| `/api/config` | GET, POST | Read/update configuration; both methods require `X-API-Key` |
+| `/api/incidents/<id>/status` | POST | Review an incident; requires `X-API-Key` |
+| `/api/incidents/clear` | POST | Destructive incident clear; requires `X-API-Key` |
+| `/api/incidents/export`, `/api/report/pdf` | GET | CSV export and printable HTML report; requires `X-API-Key` |
+| `/api/control/pause`, `/api/control/resume` | POST | Change monitoring state; requires `X-API-Key` |
+| `/api/validation/results`, `/api/validation/latest` | GET | Read local validation summaries; requires `X-API-Key` |
+| `/video_feed`, `/screenshots/<filename>` | GET | MJPEG stream and screenshot evidence; requires `X-API-Key` |
+| `/` | GET | Legacy HTML shell; protected data is unavailable until a key is supplied |
+| `/api/health` | GET | Public, limited readiness status; does not expose database path or secrets |
+
+The legacy control route was changed from state-changing GET to POST so browser prefetches cannot pause or resume monitoring.
+
+Before changing `DB_PATH` on a service with existing incident records:
+
+1. Stop incident writes and retain the original database path/file for rollback.
+2. Copy the database to the persistent disk using SQLite's online backup API (not a raw copy of only the main file while WAL writes may be active):
+
+   ```python
+   import sqlite3
+   source = sqlite3.connect("/path/to/current/exam_monitoring.db")
+   destination = sqlite3.connect("/var/data/exam_monitoring.db")
+   try:
+       source.backup(destination)
+       print(destination.execute("PRAGMA integrity_check").fetchone()[0])
+       print(destination.execute("SELECT COUNT(*) FROM incidents").fetchone()[0])
+   finally:
+       destination.close()
+       source.close()
+   ```
+
+3. Verify `integrity_check` reports `ok` and compare the incident count with the source before pointing Render's `DB_PATH` to the destination.
+4. If deployment or validation fails, restore the previous `DB_PATH` and redeploy while retaining the copied database for investigation. Do not delete either database until the new deployment and record counts are verified.
 
 ---
 
