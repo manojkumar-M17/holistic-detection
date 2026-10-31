@@ -65,11 +65,7 @@ class DatabaseManager:
             self.db_path,
             timeout=10.0
         )
-
-        try:
-            conn.execute("PRAGMA journal_mode = WAL;")
-        except sqlite3.DatabaseError:
-            pass
+        conn.execute("PRAGMA busy_timeout = 10000;")
 
         return conn
 
@@ -88,6 +84,8 @@ class DatabaseManager:
         conn = self._get_connection()
 
         try:
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("BEGIN IMMEDIATE;")
 
             cursor = conn.cursor()
 
@@ -113,12 +111,6 @@ class DatabaseManager:
                     status TEXT DEFAULT 'UNREVIEWED'
                 )
             """)
-
-            # Performance indexes for queries and dashboard filters
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_student_id ON incidents(student_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_timestamp ON incidents(timestamp)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status)")
 
             # ----------------------------------
             # DATABASE MIGRATION SUPPORT
@@ -157,6 +149,12 @@ class DatabaseManager:
                 if column not in columns:
 
                     cursor.execute(query)
+
+            # Create indexes after migrations so older schemas gain their indexed columns first.
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_student_id ON incidents(student_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_timestamp ON incidents(timestamp)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status)")
 
             conn.commit()
 

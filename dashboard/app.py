@@ -1,5 +1,6 @@
 import time
 import json
+import os
 import cv2
 import numpy as np
 from pathlib import Path
@@ -8,12 +9,54 @@ from datetime import date, datetime
 from enum import Enum
 import config.config as cfg
 from database.db_manager import (
-    get_all_incidents, get_stats, update_incident_status,
+    get_all_incidents, get_stats, init_db, update_incident_status,
     export_incidents_csv, clear_all_incidents
 )
 from modules.report_generator import generate_proctoring_report
 
 app = Flask(__name__)
+
+FRONTEND_ORIGIN = os.environ.get(
+    "FRONTEND_ORIGIN",
+    "https://holistic-detection.vercel.app",
+).strip().rstrip("/")
+
+# Gunicorn imports this module directly; main.py's initialization is not run in that deployment.
+init_db()
+
+
+@app.after_request
+def add_api_cors_headers(response):
+    origin = request.headers.get("Origin")
+    if not request.path.startswith("/api/"):
+        return response
+
+    vary_headers = {
+        value.strip().lower()
+        for value in response.headers.get("Vary", "").split(",")
+    }
+    if "origin" not in vary_headers:
+        response.headers.add("Vary", "Origin")
+
+    if origin != FRONTEND_ORIGIN:
+        return response
+
+    response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+
+    if request.method == "OPTIONS" and request.url_rule is not None:
+        route_methods = request.url_rule.methods or set()
+        allowed_methods = [
+            method for method in ("GET", "POST", "PATCH")
+            if method in route_methods
+        ]
+        if allowed_methods:
+            response.headers["Access-Control-Allow-Methods"] = ", ".join(allowed_methods)
+
+        if request.url_rule.endpoint in {"api_update_status", "api_manage_config"}:
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            response.headers["Access-Control-Max-Age"] = "600"
+
+    return response
 
 # Global state sharing class
 class SharedState:
@@ -379,5 +422,3 @@ def stop_flask_server():
         except Exception:
             pass
         _flask_socket = None
-
-
