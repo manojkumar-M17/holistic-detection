@@ -3,6 +3,7 @@
 import os
 import json
 import shutil
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -158,6 +159,158 @@ class TestDashboardIntegration(unittest.TestCase):
         event_chunk = next(event_response.response).decode()
         self.assertIn('"active_students": 1', event_chunk)
         event_response.close()
+
+    def test_api_cors_is_allowlisted_and_preflight_matches_route(self):
+        frontend_origin = "https://holistic-detection.vercel.app"
+
+        allowed = self.client.get(
+            "/api/alerts",
+            headers={"Origin": frontend_origin}
+        )
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(
+            allowed.headers["Access-Control-Allow-Origin"],
+            frontend_origin
+        )
+        self.assertIn("Origin", allowed.headers["Vary"])
+        self.assertNotIn("Access-Control-Allow-Credentials", allowed.headers)
+
+        stats = self.client.get(
+            "/api/stats",
+            headers={"Origin": frontend_origin}
+        )
+        self.assertEqual(stats.status_code, 200)
+        self.assertEqual(stats.get_json()["total_logged_alerts"], 0)
+        self.assertEqual(
+            stats.headers["Access-Control-Allow-Origin"],
+            frontend_origin
+        )
+
+        csv_export = self.client.get(
+            "/api/incidents/export",
+            headers={"Origin": frontend_origin}
+        )
+        self.assertEqual(csv_export.status_code, 200)
+        self.assertEqual(
+            csv_export.headers["Access-Control-Allow-Origin"],
+            frontend_origin
+        )
+
+        report = self.client.get(
+            "/api/report/pdf",
+            headers={"Origin": frontend_origin}
+        )
+        self.assertEqual(report.status_code, 200)
+        self.assertEqual(
+            report.headers["Access-Control-Allow-Origin"],
+            frontend_origin
+        )
+
+        event_stream = self.client.get(
+            "/api/stream-events",
+            headers={"Origin": frontend_origin},
+            buffered=False
+        )
+        self.assertEqual(event_stream.status_code, 200)
+        self.assertEqual(
+            event_stream.headers["Access-Control-Allow-Origin"],
+            frontend_origin
+        )
+        event_stream.close()
+
+        disallowed = self.client.get(
+            "/api/alerts",
+            headers={"Origin": "https://untrusted.example"}
+        )
+        self.assertNotIn("Access-Control-Allow-Origin", disallowed.headers)
+
+        preflight = self.client.options(
+            "/api/incidents/1/status",
+            headers={
+                "Origin": frontend_origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            }
+        )
+        self.assertEqual(preflight.status_code, 200)
+        self.assertEqual(
+            preflight.headers["Access-Control-Allow-Origin"],
+            frontend_origin
+        )
+        self.assertEqual(
+            preflight.headers["Access-Control-Allow-Methods"],
+            "POST"
+        )
+        self.assertEqual(
+            preflight.headers["Access-Control-Allow-Headers"],
+            "Content-Type"
+        )
+
+        config_preflight = self.client.options(
+            "/api/config",
+            headers={
+                "Origin": frontend_origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            }
+        )
+        self.assertEqual(
+            config_preflight.headers["Access-Control-Allow-Methods"],
+            "GET, POST"
+        )
+        self.assertNotIn(
+            "PATCH",
+            config_preflight.headers["Access-Control-Allow-Methods"]
+        )
+
+        control_preflight = self.client.options(
+            "/api/control/pause",
+            headers={
+                "Origin": frontend_origin,
+                "Access-Control-Request-Method": "GET",
+            }
+        )
+        self.assertEqual(
+            control_preflight.headers["Access-Control-Allow-Methods"],
+            "GET"
+        )
+        self.assertNotIn(
+            "Access-Control-Allow-Headers",
+            control_preflight.headers
+        )
+
+    def test_legacy_schema_migrates_without_losing_incidents(self):
+        legacy_path = os.path.join(self.temp_dir, "legacy.db")
+        connection = sqlite3.connect(legacy_path)
+        connection.execute("""
+            CREATE TABLE incidents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL,
+                activity TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                screenshot_path TEXT
+            )
+        """)
+        connection.execute(
+            """
+            INSERT INTO incidents (student_id, activity, timestamp)
+            VALUES (?, ?, ?)
+            """,
+            (17, "LOOK_LEFT", "2026-10-31 10:00:00")
+        )
+        connection.commit()
+        connection.close()
+
+        with patch.object(db_manager, "DB_PATH", legacy_path):
+            db_manager.init_db()
+            stats = db_manager.get_stats()
+            incidents = db_manager.get_all_incidents()
+
+        self.assertEqual(stats["total_alerts"], 1)
+        self.assertEqual(stats["unique_students"], 1)
+        self.assertEqual(incidents[0]["student_id"], 17)
+        self.assertEqual(incidents[0]["activity"], "LOOK_LEFT")
+        self.assertEqual(incidents[0]["severity"], "MEDIUM")
 
     def test_status_config_control_and_invalid_inputs(self):
         incident_id = self._seed_incidents()[0]

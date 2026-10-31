@@ -281,6 +281,23 @@ This platform is engineered following strict Privacy by Design principles:
 
 ---
 
+## 16.1 Render API Deployment
+
+The Flask dashboard initializes and migrates its SQLite schema when `dashboard.app` is imported, so WSGI deployments such as `gunicorn dashboard.app:app` do not depend on running `main.py` first. The same initialization is idempotent and preserves existing incident rows.
+
+For the Vercel frontend, configure these Render environment variables:
+
+- `FRONTEND_ORIGIN=https://holistic-detection.vercel.app` — exact browser origin allowed to read `/api/*` responses. Do not add a trailing slash or use `*`.
+- `DB_PATH=/var/data/exam_monitoring.db` — set this to a file on an attached Render persistent disk. Create/mount the disk at `/var/data` before deploying. Without a persistent disk, the local SQLite file can be lost when the service is replaced.
+
+Keep the service's existing start command if it also launches the AI processing loop. The WSGI database initialization is compatible with direct imports of `dashboard.app:app`; do not switch away from the existing monitoring entry point without separately verifying camera and detector startup.
+
+CORS is limited to the configured frontend origin and existing `/api/*` routes. Preflight method lists are derived from each Flask route, so unsupported methods such as `PATCH` are not advertised. JSON content-type permission is returned only for the existing incident-status and configuration POST routes. Credentials are not enabled.
+
+Before changing `DB_PATH` on a service with existing incident records, stop writes and use SQLite's backup procedure to copy the current database to the persistent disk; do not point the deployment at a new empty database or copy an active WAL database file without its committed WAL contents.
+
+---
+
 ## 17. Automated Testing & Code Quality Matrix
 
 The project maintains an exhaustive test suite covering unit, integration, security, and headless execution boundaries:

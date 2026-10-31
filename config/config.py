@@ -4,7 +4,12 @@ import os
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Database and file logging configuration
-DB_PATH = os.path.join(BASE_DIR, "database", "exam_monitoring.db")
+DB_PATH = os.path.abspath(
+    os.environ.get(
+        "DB_PATH",
+        os.path.join(BASE_DIR, "database", "exam_monitoring.db"),
+    )
+)
 SCREENSHOT_DIR = os.path.join(BASE_DIR, "screenshots")
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 WEIGHTS_DIR = os.path.join(BASE_DIR, "weights")
